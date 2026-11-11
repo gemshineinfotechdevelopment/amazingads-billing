@@ -1,0 +1,939 @@
+import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  User,
+  Plus,
+  Trash2,
+  Printer,
+  Save,
+  RotateCcw,
+  Receipt,
+  FileCheck2,
+} from 'lucide-react';
+import { InvoicePrintView } from '../components/invoice/InvoicePrintView';
+import type { Invoice, InvoiceUnit } from '../types/invoice';
+import { invoiceService } from '../services/invoiceService';
+import { useSettings } from '../context/SettingsContext';
+import { formatCurrency } from '../utils/formatters';
+import toast from 'react-hot-toast';
+
+interface DirectBillingItemRow {
+  name: string;
+  size: string;
+  quantity: number;
+  unit: InvoiceUnit;
+  rate: number;
+  discount: number;
+  gstPercentage: number;
+}
+
+export const NewBillingPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { settings } = useSettings();
+
+  // 1. Direct Customer Details Form
+  const [customer, setCustomer] = useState({
+    name: '',
+    mobile: '',
+    companyName: '',
+    gstin: '',
+    billingAddress: '',
+    city: '',
+    state: settings?.state || 'Tamil Nadu',
+    pincode: '',
+    email: '',
+  });
+
+  // 2. Direct Invoice Meta
+  const [invoiceDate, setInvoiceDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [isGstInvoice, setIsGstInvoice] = useState(true);
+  const [additionalDiscount, setAdditionalDiscount] = useState<number>(0);
+  const [notes, setNotes] = useState('');
+
+  // 3. Direct Invoice Items (starts with 1 empty row ready to fill)
+  const [items, setItems] = useState<DirectBillingItemRow[]>([
+    {
+      name: '',
+      size: '15x20 inch',
+      quantity: 100,
+      unit: 'Pieces',
+      rate: 180,
+      discount: 0,
+      gstPercentage: settings?.defaultGstRate || 12,
+    },
+  ]);
+
+  // 4. Save & Print State
+  const [submitting, setSubmitting] = useState(false);
+  const [savedInvoice, setSavedInvoice] = useState<Invoice | null>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Determine Inter-state (IGST) vs Intra-state (CGST + SGST)
+  const isInterState = useMemo(() => {
+    const compState = settings?.state || 'Tamil Nadu';
+    const custState = customer.state || 'Tamil Nadu';
+    return custState.trim().toLowerCase() !== compState.trim().toLowerCase();
+  }, [customer.state, settings?.state]);
+
+  // Financial Calculations
+  const calculations = useMemo(() => {
+    let subtotal = 0;
+    let itemDiscountTotal = 0;
+    let totalTaxable = 0;
+    let totalGst = 0;
+
+    const calculatedItems = items.map((item) => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      const rate = Math.max(0, Number(item.rate) || 0);
+      const disc = Math.max(0, Number(item.discount) || 0);
+      const gross = qty * rate;
+      const taxable = Math.max(0, gross - disc);
+      const gstPct = isGstInvoice ? Number(item.gstPercentage ?? 12) : 0;
+      const gstAmt = isGstInvoice ? (taxable * gstPct) / 100 : 0;
+      const total = taxable + gstAmt;
+
+      subtotal += gross;
+      itemDiscountTotal += disc;
+      totalTaxable += taxable;
+      totalGst += gstAmt;
+
+      return {
+        ...item,
+        taxableAmount: taxable,
+        gstAmount: gstAmt,
+        totalAmount: total,
+      };
+    });
+
+    const finalTaxable = Math.max(0, totalTaxable - Math.max(0, Number(additionalDiscount) || 0));
+
+    let cgstAmount = 0;
+    let sgstAmount = 0;
+    let igstAmount = 0;
+
+    if (isGstInvoice && totalGst > 0) {
+      if (isInterState) {
+        igstAmount = totalGst;
+      } else {
+        cgstAmount = totalGst / 2;
+        sgstAmount = totalGst / 2;
+      }
+    }
+
+    const rawGrandTotal = finalTaxable + (isInterState ? igstAmount : cgstAmount + sgstAmount);
+    const grandTotal = Math.round(rawGrandTotal);
+    const roundOff = Number((grandTotal - rawGrandTotal).toFixed(2));
+
+    return {
+      calculatedItems,
+      subtotal,
+      itemDiscountTotal,
+      taxableAmount: finalTaxable,
+      cgstAmount,
+      sgstAmount,
+      igstAmount,
+      totalGstAmount: totalGst,
+      roundOff,
+      grandTotal,
+    };
+  }, [items, additionalDiscount, isGstInvoice, isInterState]);
+
+  // Add a new empty row
+  const handleAddItemRow = () => {
+    setItems([
+      ...items,
+      {
+        name: '',
+        size: '15x20 inch',
+        quantity: 50,
+        unit: 'Pieces',
+        rate: 150,
+        discount: 0,
+        gstPercentage: settings?.defaultGstRate || 12,
+      },
+    ]);
+  };
+
+  // Update item field
+  const handleUpdateItem = (index: number, field: keyof DirectBillingItemRow, value: any) => {
+    const updated = [...items];
+    updated[index] = { ...updated[index], [field]: value };
+    setItems(updated);
+  };
+
+  // Remove item row
+  const handleRemoveItem = (index: number) => {
+    if (items.length === 1) {
+      toast.error('Invoice must have at least one product item.');
+      return;
+    }
+    setItems(items.filter((_, idx) => idx !== index));
+  };
+
+  // Reset form
+  const handleReset = () => {
+    if (!window.confirm('Reset all entered billing details?')) {
+      return;
+    }
+    setCustomer({
+      name: '',
+      mobile: '',
+      companyName: '',
+      gstin: '',
+      billingAddress: '',
+      city: '',
+      state: settings?.state || 'Tamil Nadu',
+      pincode: '',
+      email: '',
+    });
+    setItems([
+      {
+        name: '',
+        size: '15x20 inch',
+        quantity: 100,
+        unit: 'Pieces',
+        rate: 180,
+        discount: 0,
+        gstPercentage: settings?.defaultGstRate || 12,
+      },
+    ]);
+    setAdditionalDiscount(0);
+    setNotes('');
+  };
+
+  // Save Invoice Direct to DB
+  const handleSaveInvoice = async (andPrint: boolean = false): Promise<Invoice | null> => {
+    if (!customer.name.trim()) {
+      toast.error('Please enter the Customer Name.');
+      return null;
+    }
+    if (!customer.mobile.trim()) {
+      toast.error('Please enter the Customer Mobile Number.');
+      return null;
+    }
+
+    const emptyItems = items.filter((i) => !i.name.trim());
+    if (emptyItems.length > 0) {
+      toast.error('Please enter the Item Description / Product Name for all rows.');
+      return null;
+    }
+
+    try {
+      setSubmitting(true);
+      const payload = {
+        customerData: {
+          name: customer.name.trim(),
+          mobile: customer.mobile.trim(),
+          companyName: customer.companyName.trim(),
+          gstin: customer.gstin.trim(),
+          billingAddress: customer.billingAddress.trim() || 'Direct Billing',
+          city: customer.city.trim() || 'Sivakasi',
+          state: customer.state.trim() || settings?.state || 'Tamil Nadu',
+          pincode: customer.pincode.trim() || '626123',
+          email: customer.email.trim(),
+        },
+        invoiceDate,
+        items: items.map((i, idx) => ({
+          name: i.name.trim(),
+          sku: `CAL-${idx + 101}`,
+          category: 'Calendar Printing',
+          size: i.size.trim() || 'Standard',
+          quantity: Number(i.quantity) || 1,
+          unit: i.unit,
+          rate: Number(i.rate) || 0,
+          discount: Number(i.discount) || 0,
+          gstPercentage: Number(i.gstPercentage) || 0,
+        })),
+        additionalDiscount: Number(additionalDiscount) || 0,
+        isGstInvoice,
+        notes,
+      };
+
+      const created = await invoiceService.createInvoice(payload);
+      toast.success(`Bill generated successfully: ${created.invoiceNumber}`);
+      setSavedInvoice(created);
+
+      if (andPrint) {
+        setShowPreviewModal(true);
+      } else {
+        setTimeout(() => {
+          navigate('/invoices');
+        }, 600);
+      }
+
+      return created;
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to save bill');
+      return null;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Header with Actions */}
+      <div className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <span className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider flex items-center gap-1.5">
+            <Receipt className="w-4 h-4" />
+            <span>Direct Billing Counter</span>
+          </span>
+          <h2 className="text-lg sm:text-xl font-bold text-[#142B4A]">New Calendar Invoice</h2>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={handleReset}
+            className="flex-1 sm:flex-initial justify-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5 transition"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => handleSaveInvoice(false)}
+            className="flex-1 sm:flex-initial justify-center px-3.5 py-2 text-xs font-bold text-white bg-[#142B4A] hover:bg-[#1e3c66] rounded-lg shadow-sm flex items-center gap-1.5 transition disabled:opacity-50"
+          >
+            <Save className="w-4 h-4 text-blue-300" />
+            <span>{submitting ? 'Saving...' : 'Save Bill'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => handleSaveInvoice(true)}
+            className="w-full sm:w-auto justify-center px-4 py-2 text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-700 rounded-lg shadow-sm flex items-center gap-1.5 transition disabled:opacity-50"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Save & Print A4</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Customer & Billing Details (Direct Input Form) */}
+      <div className="bg-white rounded-xl p-4 sm:p-6 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2.5">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-[#2563EB]" />
+            <h3 className="text-sm font-bold text-[#142B4A]">Customer & Invoice Information</h3>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+            {/* Tax Regime Indicator */}
+            <span
+              className={`px-2.5 py-1 rounded text-[11px] font-bold ${
+                isInterState
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}
+            >
+              {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST + SGST)'}
+            </span>
+
+            {/* GST Invoice Toggle */}
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isGstInvoice}
+                onChange={(e) => setIsGstInvoice(e.target.checked)}
+                className="w-4 h-4 text-[#2563EB] rounded focus:ring-blue-500"
+              />
+              <span>GST Tax Invoice</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Form Inputs Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Customer Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. S. Muthukumar"
+              value={customer.name}
+              onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Mobile Number *
+            </label>
+            <input
+              type="tel"
+              required
+              placeholder="10-digit mobile"
+              value={customer.mobile}
+              onChange={(e) => setCustomer({ ...customer, mobile: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Company / Shop Name
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Meenakshi Jewellers"
+              value={customer.companyName}
+              onChange={(e) => setCustomer({ ...customer, companyName: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Customer GSTIN (optional)
+            </label>
+            <input
+              type="text"
+              placeholder="15-character GSTIN"
+              value={customer.gstin}
+              onChange={(e) => setCustomer({ ...customer, gstin: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none uppercase font-mono"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Billing Address
+            </label>
+            <input
+              type="text"
+              placeholder="Street / Door No."
+              value={customer.billingAddress}
+              onChange={(e) => setCustomer({ ...customer, billingAddress: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">City</label>
+            <input
+              type="text"
+              placeholder="Madurai / Sivakasi"
+              value={customer.city}
+              onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              State (Tax Rate Trigger)
+            </label>
+            <input
+              type="text"
+              placeholder="Tamil Nadu"
+              value={customer.state}
+              onChange={(e) => setCustomer({ ...customer, state: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Invoice Date</label>
+            <input
+              type="date"
+              value={invoiceDate}
+              onChange={(e) => setInvoiceDate(e.target.value)}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Direct Invoice Items (Mobile Cards + Desktop Table) */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="p-4 border-b border-slate-200 flex flex-col xs:flex-row xs:items-center justify-between gap-3 bg-slate-50/70">
+          <div>
+            <h3 className="text-sm font-bold text-[#142B4A]">
+              Calendar Items to Bill ({items.length})
+            </h3>
+            <p className="text-xs text-slate-500">
+              Type product name, size, quantity, and unit rate directly.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAddItemRow}
+            className="self-start xs:self-auto px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Item Row</span>
+          </button>
+        </div>
+
+        {/* Mobile View: Clean Touch Cards */}
+        <div className="block md:hidden p-3.5 space-y-3.5 bg-slate-50/40">
+          {calculations.calculatedItems.map((item, idx) => (
+            <div
+              key={idx}
+              className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-3"
+            >
+              {/* Card Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-xs text-slate-700">
+                  Item #{idx + 1}
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold font-mono text-[#142B4A]">
+                    ₹{item.totalAmount.toFixed(2)}
+                  </span>
+                  {items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(idx)}
+                      title="Remove Item"
+                      className="p-1 text-slate-400 hover:text-red-600 rounded transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Description */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Product Description *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Royal Gold Foil 12-Sheet Wall Calendar"
+                  value={item.name}
+                  onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                />
+              </div>
+
+              {/* Size */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Size</label>
+                <input
+                  type="text"
+                  placeholder="15x20 inch"
+                  value={item.size}
+                  onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                />
+              </div>
+
+              {/* Qty & Unit */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={item.quantity}
+                    onChange={(e) =>
+                      handleUpdateItem(idx, 'quantity', Math.max(1, Number(e.target.value)))
+                    }
+                    className="w-full px-2.5 py-1.5 text-center font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Unit</label>
+                  <select
+                    value={item.unit}
+                    onChange={(e) => handleUpdateItem(idx, 'unit', e.target.value)}
+                    className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:border-[#2563EB] outline-none"
+                  >
+                    <option value="Pieces">Pieces</option>
+                    <option value="Boxes">Boxes</option>
+                    <option value="Bundles">Bundles</option>
+                    <option value="Sets">Sets</option>
+                    <option value="Custom">Custom</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Rate & Discount */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Rate (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    value={item.rate}
+                    onChange={(e) =>
+                      handleUpdateItem(idx, 'rate', Math.max(0, Number(e.target.value)))
+                    }
+                    className="w-full px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Discount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={item.discount || ''}
+                    placeholder="0"
+                    onChange={(e) =>
+                      handleUpdateItem(idx, 'discount', Math.max(0, Number(e.target.value)))
+                    }
+                    className="w-full px-2.5 py-1.5 text-right font-mono text-emerald-600 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* GST % and Item Row Total */}
+              {isGstInvoice && (
+                <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-600">GST %:</span>
+                    <select
+                      value={item.gstPercentage}
+                      onChange={(e) =>
+                        handleUpdateItem(idx, 'gstPercentage', Number(e.target.value))
+                      }
+                      className="px-2 py-1 border border-slate-200 rounded text-xs bg-white focus:border-[#2563EB] outline-none font-medium"
+                    >
+                      <option value="0">0%</option>
+                      <option value="5">5%</option>
+                      <option value="12">12%</option>
+                      <option value="18">18%</option>
+                      <option value="28">28%</option>
+                    </select>
+                  </div>
+
+                  <span className="text-xs text-slate-500 font-medium">
+                    Total: <strong className="text-slate-900 font-mono">₹{item.totalAmount.toFixed(2)}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop View: Wide Data Entry Table */}
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-100/70 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
+              <tr>
+                <th className="py-2.5 px-3 w-10 text-center">#</th>
+                <th className="py-2.5 px-3 min-w-[220px]">Description / Calendar Product *</th>
+                <th className="py-2.5 px-2 w-28">Size</th>
+                <th className="py-2.5 px-2 w-24 text-center">Qty *</th>
+                <th className="py-2.5 px-2 w-28">Unit</th>
+                <th className="py-2.5 px-2 w-28 text-right">Rate (₹) *</th>
+                <th className="py-2.5 px-2 w-24 text-right">Discount (₹)</th>
+                {isGstInvoice && <th className="py-2.5 px-2 w-24 text-center">GST %</th>}
+                <th className="py-2.5 px-3 w-32 text-right font-bold">Total (₹)</th>
+                <th className="py-2.5 px-2 w-12 text-center"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {calculations.calculatedItems.map((item, idx) => (
+                <tr key={idx} className="hover:bg-slate-50/50">
+                  <td className="py-2.5 px-3 text-center font-bold text-slate-400">
+                    {idx + 1}
+                  </td>
+
+                  {/* Product / Description Direct Input */}
+                  <td className="py-2.5 px-3">
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Royal Gold Foil 12-Sheet Wall Calendar"
+                      value={item.name}
+                      onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs font-semibold text-slate-800 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
+                  {/* Size */}
+                  <td className="py-2.5 px-2">
+                    <input
+                      type="text"
+                      placeholder="15x20 inch"
+                      value={item.size}
+                      onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
+                  {/* Qty */}
+                  <td className="py-2.5 px-2">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={item.quantity}
+                      onChange={(e) =>
+                        handleUpdateItem(idx, 'quantity', Math.max(1, Number(e.target.value)))
+                      }
+                      className="w-full px-2 py-1.5 text-center font-bold text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
+                  {/* Unit */}
+                  <td className="py-2.5 px-2">
+                    <select
+                      value={item.unit}
+                      onChange={(e) => handleUpdateItem(idx, 'unit', e.target.value)}
+                      className="w-full px-1.5 py-1.5 border border-slate-200 rounded-md text-xs bg-white text-slate-700 focus:border-[#2563EB] outline-none"
+                    >
+                      <option value="Pieces">Pieces</option>
+                      <option value="Boxes">Boxes</option>
+                      <option value="Bundles">Bundles</option>
+                      <option value="Sets">Sets</option>
+                      <option value="Custom">Custom</option>
+                    </select>
+                  </td>
+
+                  {/* Rate */}
+                  <td className="py-2.5 px-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                      value={item.rate}
+                      onChange={(e) =>
+                        handleUpdateItem(idx, 'rate', Math.max(0, Number(e.target.value)))
+                      }
+                      className="w-full px-2 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
+                  {/* Discount */}
+                  <td className="py-2.5 px-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={item.discount || ''}
+                      placeholder="0"
+                      onChange={(e) =>
+                        handleUpdateItem(idx, 'discount', Math.max(0, Number(e.target.value)))
+                      }
+                      className="w-full px-2 py-1.5 text-right font-mono text-emerald-600 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
+                  {/* GST % */}
+                  {isGstInvoice && (
+                    <td className="py-2.5 px-2">
+                      <select
+                        value={item.gstPercentage}
+                        onChange={(e) =>
+                          handleUpdateItem(idx, 'gstPercentage', Number(e.target.value))
+                        }
+                        className="w-full px-1.5 py-1.5 border border-slate-200 rounded-md text-center text-xs bg-white focus:border-[#2563EB] outline-none font-medium"
+                      >
+                        <option value="0">0%</option>
+                        <option value="5">5%</option>
+                        <option value="12">12%</option>
+                        <option value="18">18%</option>
+                        <option value="28">28%</option>
+                      </select>
+                    </td>
+                  )}
+
+                  {/* Total Amount */}
+                  <td className="py-2.5 px-3 text-right font-bold font-mono text-slate-900 text-sm">
+                    ₹{item.totalAmount.toFixed(2)}
+                  </td>
+
+                  {/* Remove Row */}
+                  <td className="py-2.5 px-2 text-center">
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(idx)}
+                        title="Remove Row"
+                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50 transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Row Add Bar */}
+        <div className="p-3 bg-slate-50/50 border-t border-slate-200 flex justify-between items-center">
+          <button
+            type="button"
+            onClick={handleAddItemRow}
+            className="text-xs font-bold text-[#2563EB] hover:text-blue-700 flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-blue-50 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Another Item Row</span>
+          </button>
+          <span className="text-xs text-slate-500 font-medium">
+            Total {items.length} line item(s)
+          </span>
+        </div>
+      </div>
+
+      {/* 4. Bottom Section: Notes & Live Financial Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Additional Discount & Notes */}
+        <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+          <h4 className="text-sm font-bold text-[#142B4A]">Additional Invoice Options</h4>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Overall Invoice Discount (₹)
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              value={additionalDiscount || ''}
+              onChange={(e) => setAdditionalDiscount(Number(e.target.value))}
+              className="w-full max-w-xs px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Invoice Remarks / Delivery Notes
+            </label>
+            <textarea
+              rows={3}
+              placeholder="e.g. Dispatched via Sivakasi Lorry Service / Delivered in full"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Right: Calculations Breakdown & Grand Total */}
+        <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <h4 className="text-sm font-bold text-[#142B4A] mb-3">Invoice Calculation</h4>
+
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between py-1 text-slate-600">
+              <span>Subtotal:</span>
+              <span className="font-mono font-medium">₹{calculations.subtotal.toFixed(2)}</span>
+            </div>
+
+            {(calculations.itemDiscountTotal > 0 || additionalDiscount > 0) && (
+              <div className="flex justify-between py-1 text-emerald-600 font-medium">
+                <span>Total Discounts:</span>
+                <span className="font-mono">
+                  -₹{(calculations.itemDiscountTotal + (Number(additionalDiscount) || 0)).toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-between py-1 text-slate-700 font-semibold border-t border-slate-100">
+              <span>Taxable Value:</span>
+              <span className="font-mono">₹{calculations.taxableAmount.toFixed(2)}</span>
+            </div>
+
+            {isGstInvoice && (
+              <>
+                {isInterState ? (
+                  <div className="flex justify-between py-1 text-slate-600">
+                    <span>IGST (Inter-State):</span>
+                    <span className="font-mono">₹{calculations.igstAmount.toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between py-0.5 text-slate-600">
+                      <span>CGST:</span>
+                      <span className="font-mono">₹{calculations.cgstAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-0.5 text-slate-600">
+                      <span>SGST:</span>
+                      <span className="font-mono">₹{calculations.sgstAmount.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {calculations.roundOff !== 0 && (
+              <div className="flex justify-between py-1 text-slate-500">
+                <span>Round Off:</span>
+                <span className="font-mono">
+                  {calculations.roundOff > 0 ? `+₹${calculations.roundOff.toFixed(2)}` : `-₹${Math.abs(calculations.roundOff).toFixed(2)}`}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Grand Total Box & Save Actions */}
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <div className="flex justify-between items-center py-3 px-4 bg-[#142B4A] text-white rounded-xl mb-4 shadow-sm">
+              <span className="font-bold text-sm tracking-wide">GRAND TOTAL:</span>
+              <span className="text-2xl font-black font-mono tracking-tight">
+                {formatCurrency(calculations.grandTotal)}
+              </span>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => handleSaveInvoice(false)}
+                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 text-blue-300" />
+                <span>Save Invoice</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => handleSaveInvoice(true)}
+                className="flex-1 py-2.5 px-4 bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
+              >
+                <FileCheck2 className="w-4 h-4" />
+                <span>Save & Print A4</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Invoice Print & PDF View Modal */}
+      {showPreviewModal && savedInvoice && (
+        <InvoicePrintView
+          invoice={savedInvoice}
+          onClose={() => {
+            setShowPreviewModal(false);
+            navigate('/invoices');
+          }}
+        />
+      )}
+    </div>
+  );
+};

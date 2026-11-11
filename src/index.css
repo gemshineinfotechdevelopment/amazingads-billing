@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #142B4A;
+    --secondary: #2563EB;
+    --bg-main: #F5F7FB;
+    --card-bg: #FFFFFF;
+    --text-main: #1E293B;
+    --success: #16A34A;
+    --warning: #F59E0B;
+  }
+
+  body {
+    background-color: #F5F7FB;
+    color: #1E293B;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Print Specific Rules for A4 Invoice */
+@media print {
+  /* Hide UI chrome */
+  aside,
+  nav,
+  header,
+  .no-print,
+  .print-hide {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-container {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm 15mm !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+}
