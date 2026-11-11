@@ -51,6 +51,7 @@ echo ""
 echo "⚙️ Step 3: Checking Server Environment..."
 mkdir -p "$PROJECT_DIR/logs"
 
+# Ensure backend .env exists
 if [ ! -f "$PROJECT_DIR/server/.env" ]; then
   if [ -f "$PROJECT_DIR/server/.env.production.example" ]; then
     echo "📝 Creating server/.env from template..."
@@ -59,6 +60,14 @@ if [ ! -f "$PROJECT_DIR/server/.env" ]; then
   else
     echo "❌ server/.env missing! Please create server/.env before continuing."
     exit 1
+  fi
+fi
+
+# Ensure frontend .env.production exists
+if [ ! -f "$PROJECT_DIR/.env.production" ]; then
+  if [ -f "$PROJECT_DIR/.env.example" ]; then
+    echo "📝 Creating .env.production from template..."
+    cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env.production"
   fi
 fi
 
