@@ -248,11 +248,11 @@ export const SettingsPage: React.FC = () => {
                 type="number"
                 required
                 min="1"
-                value={formData.startingNumber || 1001}
+                value={formData.startingNumber !== undefined ? formData.startingNumber : 1}
                 onChange={(e) => setFormData({ ...formData, startingNumber: Number(e.target.value) })}
                 className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
               />
-              <span className="text-[10px] text-slate-400 mt-1 block">e.g. 1001</span>
+              <span className="text-[10px] text-slate-400 mt-1 block">e.g. 1</span>
             </div>
           </div>
 

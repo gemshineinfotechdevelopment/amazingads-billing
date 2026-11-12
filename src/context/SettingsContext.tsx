@@ -30,6 +30,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fetchSettings();
   }, []);
 
+  // Dynamically update document title whenever company settings update
+  useEffect(() => {
+    if (settings?.companyName) {
+      document.title = `${settings.companyName} - Calendar Printing Billing`;
+    }
+  }, [settings?.companyName]);
+
   const updateSettings = async (data: Partial<CompanySettings>) => {
     const updated = await settingsService.updateSettings(data);
     setSettings(updated);

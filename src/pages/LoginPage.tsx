@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Printer, Lock, Mail, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import toast from 'react-hot-toast';
 
 export const LoginPage: React.FC = () => {
@@ -9,6 +10,7 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('admin123');
   const [submitting, setSubmitting] = useState(false);
   const { login } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,7 +44,7 @@ export const LoginPage: React.FC = () => {
             Calendar Printing Billing
           </h1>
           <p className="text-xs text-slate-500 mt-1 font-medium">
-            Amazing Ads • Professional Invoicing System
+            {settings?.companyName || 'Amazing Ads'} • Professional Invoicing System
           </p>
         </div>
 
@@ -111,7 +113,7 @@ export const LoginPage: React.FC = () => {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6 font-medium">
-          Amazing Ads © 2026. Secure Access Only.
+          {settings?.companyName || 'Amazing Ads'} © 2026. Secure Access Only.
         </p>
       </div>
     </div>

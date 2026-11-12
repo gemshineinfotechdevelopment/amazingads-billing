@@ -29,6 +29,11 @@ export const productService = {
     return res.data.data;
   },
 
+  async getNextSku(): Promise<string> {
+    const res = await api.get('/products/next-sku');
+    return res.data.data.nextSku;
+  },
+
   async createProduct(data: ProductInput): Promise<Product> {
     const res = await api.post('/products', data);
     return res.data.data;

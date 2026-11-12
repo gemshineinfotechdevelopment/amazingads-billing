@@ -31,7 +31,7 @@ const companySettingsSchema = new Schema<ICompanySettings>(
     state: { type: String, required: true, default: 'Tamil Nadu' },
     pincode: { type: String, required: true, default: '626123' },
     invoicePrefix: { type: String, required: true, default: 'CAL' },
-    startingNumber: { type: Number, required: true, default: 1001 },
+    startingNumber: { type: Number, required: true, default: 1 },
     financialYear: { type: String, required: true, default: '2026-27' },
     currency: { type: String, default: 'INR' },
     defaultGstRate: { type: Number, default: 12 },

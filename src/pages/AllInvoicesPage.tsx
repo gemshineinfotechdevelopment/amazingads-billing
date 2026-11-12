@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Search,
   Eye,
   Download,
   Ban,
   RotateCcw,
+  Trash2,
+  Pencil,
 } from 'lucide-react';
 import { InvoicePrintView } from '../components/invoice/InvoicePrintView';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
@@ -17,6 +20,7 @@ import { generateInvoicePDF } from '../utils/pdfGenerator';
 import toast from 'react-hot-toast';
 
 export const AllInvoicesPage: React.FC = () => {
+  const navigate = useNavigate();
   const { settings } = useSettings();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +40,7 @@ export const AllInvoicesPage: React.FC = () => {
   // Modals
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [cancellingInvoice, setCancellingInvoice] = useState<Invoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     loadInvoices();
@@ -70,9 +75,22 @@ export const AllInvoicesPage: React.FC = () => {
     try {
       await invoiceService.cancelInvoice(cancellingInvoice._id, 'Cancelled via Invoice Directory');
       toast.success(`Invoice ${cancellingInvoice.invoiceNumber} has been cancelled.`);
+      setCancellingInvoice(null);
       loadInvoices();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to cancel invoice');
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!deletingInvoice) return;
+    try {
+      await invoiceService.deleteInvoice(deletingInvoice._id);
+      toast.success(`Invoice ${deletingInvoice.invoiceNumber} deleted and bills re-sequenced.`);
+      setDeletingInvoice(null);
+      loadInvoices();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to delete invoice');
     }
   };
 
@@ -244,6 +262,16 @@ export const AllInvoicesPage: React.FC = () => {
                     <span>View / Print</span>
                   </button>
 
+                  {inv.status === 'Active' && (
+                    <button
+                      onClick={() => navigate(`/billing/edit/${inv._id}`)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-xs transition hover:bg-emerald-100"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => handleDownloadPDF(inv)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-semibold text-xs transition hover:bg-slate-200"
@@ -255,12 +283,21 @@ export const AllInvoicesPage: React.FC = () => {
                   {inv.status === 'Active' && (
                     <button
                       onClick={() => setCancellingInvoice(inv)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold text-xs transition hover:bg-red-100"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-semibold text-xs transition hover:bg-amber-100"
                     >
                       <Ban className="w-3.5 h-3.5" />
                       <span>Cancel</span>
                     </button>
                   )}
+
+                  <button
+                    onClick={() => setDeletingInvoice(inv)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold text-xs transition hover:bg-red-100"
+                    title="Delete invoice and resequence"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
                 </div>
               </div>
             ))
@@ -345,6 +382,17 @@ export const AllInvoicesPage: React.FC = () => {
                           <Eye className="w-4 h-4" />
                         </button>
 
+                        {/* Edit Invoice */}
+                        {inv.status === 'Active' && (
+                          <button
+                            onClick={() => navigate(`/billing/edit/${inv._id}`)}
+                            title="Edit Invoice"
+                            className="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-600 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+
                         {/* Download PDF */}
                         <button
                           onClick={() => handleDownloadPDF(inv)}
@@ -359,11 +407,20 @@ export const AllInvoicesPage: React.FC = () => {
                           <button
                             onClick={() => setCancellingInvoice(inv)}
                             title="Cancel Invoice"
-                            className="p-1.5 rounded-md hover:bg-red-50 text-red-600 transition"
+                            className="p-1.5 rounded-md hover:bg-amber-50 text-amber-600 transition"
                           >
                             <Ban className="w-4 h-4" />
                           </button>
                         )}
+
+                        {/* Delete Invoice */}
+                        <button
+                          onClick={() => setDeletingInvoice(inv)}
+                          title="Delete Invoice & Resequence"
+                          className="p-1.5 rounded-md hover:bg-red-50 text-red-500 hover:text-red-700 transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -397,6 +454,17 @@ export const AllInvoicesPage: React.FC = () => {
         isDestructive={true}
         onConfirm={handleCancelInvoice}
         onClose={() => setCancellingInvoice(null)}
+      />
+
+      {/* Delete Invoice Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={Boolean(deletingInvoice)}
+        title="Delete Invoice & Resequence"
+        message={`Are you sure you want to permanently delete invoice "${deletingInvoice?.invoiceNumber}" for ${deletingInvoice?.customerSnapshot.name}? All remaining invoices will be automatically re-sequenced starting from 1 in continuous order in the database.`}
+        confirmLabel="Yes, Delete & Resequence"
+        isDestructive={true}
+        onConfirm={handleDeleteInvoice}
+        onClose={() => setDeletingInvoice(null)}
       />
     </div>
   );

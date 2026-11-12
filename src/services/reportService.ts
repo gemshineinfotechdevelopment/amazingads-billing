@@ -15,14 +15,20 @@ export const reportService = {
     return res.data;
   },
 
-  async getMonthlySalesReport(): Promise<{ data: any[]; summary: any }> {
-    const res = await api.get('/reports/monthly-sales');
+  async getMonthlySalesReport(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: any[]; summary: any }> {
+    const res = await api.get('/reports/monthly-sales', { params });
     return res.data;
   },
 
-  async getYearlySalesReport(): Promise<any[]> {
-    const res = await api.get('/reports/yearly-sales');
-    return res.data.data;
+  async getYearlySalesReport(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: any[]; summary: any }> {
+    const res = await api.get('/reports/yearly-sales', { params });
+    return res.data;
   },
 
   async getProductSalesReport(params?: {
@@ -36,9 +42,17 @@ export const reportService = {
   async getCategorySalesReport(params?: {
     startDate?: string;
     endDate?: string;
-  }): Promise<any[]> {
+  }): Promise<{ data: any[]; summary: any }> {
     const res = await api.get('/reports/category-sales', { params });
-    return res.data.data;
+    return res.data;
+  },
+
+  async getCustomerSalesReport(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: any[]; summary: any }> {
+    const res = await api.get('/reports/customer-sales', { params });
+    return res.data;
   },
 };
 

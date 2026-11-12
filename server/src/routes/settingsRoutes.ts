@@ -4,10 +4,11 @@ import { authenticateAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
-router.use(authenticateAdmin);
-
+// GET is accessible so public/login UI and dashboard can read company metadata
 router.get('/', getSettings);
-router.put('/', updateSettings);
+
+// PUT is strictly protected for authenticated admins only
+router.put('/', authenticateAdmin, updateSettings);
 
 export default router;
 

@@ -35,6 +35,11 @@ export const customerService = {
     return res.data.data;
   },
 
+  async lookupByMobile(mobile: string): Promise<Customer | null> {
+    const res = await api.get('/customers/lookup', { params: { mobile } });
+    return res.data.data;
+  },
+
   async createCustomer(data: CustomerInput): Promise<Customer> {
     const res = await api.post('/customers', data);
     return res.data.data;

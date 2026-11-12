@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '../components/common/Sidebar';
 import { TopNavbar } from '../components/common/TopNavbar';
+import { useSettings } from '../context/SettingsContext';
 
 export const DashboardLayout: React.FC = () => {
+  const { settings } = useSettings();
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sidebarOpen');
@@ -37,7 +39,10 @@ export const DashboardLayout: React.FC = () => {
       case '/settings':
         return 'System & Company Settings';
       default:
-        return 'Amazing Ads - Calendar Billing';
+        if (pathname.startsWith('/billing/edit/')) {
+          return 'Edit Sales Invoice';
+        }
+        return `${settings?.companyName || 'Amazing Ads'} - Calendar Billing`;
     }
   };
 

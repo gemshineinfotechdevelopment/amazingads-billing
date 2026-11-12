@@ -111,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         {/* Footer Info */}
         <div className="p-4 border-t border-white/10 text-xs text-slate-400 flex items-center justify-between">
-          <span className="truncate">Amazing Ads System</span>
+          <span className="truncate">{settings?.companyName ? `${settings.companyName} System` : 'Amazing Ads System'}</span>
           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="System Online"></span>
         </div>
       </aside>

@@ -30,6 +30,11 @@ export const invoiceService = {
     return res.data.data;
   },
 
+  async getNextInvoiceNumber(): Promise<string> {
+    const res = await api.get('/invoices/next-number');
+    return res.data.data.nextInvoiceNumber;
+  },
+
   async createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
     const res = await api.post('/invoices', payload);
     return res.data.data;
@@ -43,6 +48,10 @@ export const invoiceService = {
   async cancelInvoice(id: string, reason?: string): Promise<Invoice> {
     const res = await api.patch(`/invoices/${id}/cancel`, { reason });
     return res.data.data;
+  },
+
+  async deleteInvoice(id: string): Promise<void> {
+    await api.delete(`/invoices/${id}`);
   },
 };
 

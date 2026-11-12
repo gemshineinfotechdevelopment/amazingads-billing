@@ -56,7 +56,7 @@ export const InvoicePrintView: React.FC<InvoicePrintViewProps> = ({
               {invoice.isGstInvoice ? 'TAX INVOICE' : 'INVOICE'}
             </span>
             <div className="mt-2 text-xs">
-              <p className="font-bold text-sm text-[#142B4A]">{invoice.invoiceNumber}</p>
+              <p className="font-bold text-sm text-[#142B4A]">Bill #{invoice.invoiceNumber}</p>
               <p className="text-slate-500">Date: {formatDate(invoice.invoiceDate)}</p>
               <p className="text-slate-500">Place of Supply: {invoice.customerSnapshot.state}</p>
               {invoice.status === 'Cancelled' && (

@@ -145,10 +145,22 @@ export const getDailySalesReport = async (req: Request, res: Response): Promise<
   }
 };
 
-export const getMonthlySalesReport = async (_req: Request, res: Response): Promise<void> => {
+export const getMonthlySalesReport = async (req: Request, res: Response): Promise<void> => {
   try {
+    const { startDate, endDate } = req.query;
+    const match: any = { status: 'Active' };
+    if (startDate || endDate) {
+      match.invoiceDate = {};
+      if (startDate) match.invoiceDate.$gte = new Date(String(startDate));
+      if (endDate) {
+        const end = new Date(String(endDate));
+        end.setHours(23, 59, 59, 999);
+        match.invoiceDate.$lte = end;
+      }
+    }
+
     const report = await Invoice.aggregate([
-      { $match: { status: 'Active' } },
+      { $match: match },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m', date: '$invoiceDate' } },
@@ -177,10 +189,22 @@ export const getMonthlySalesReport = async (_req: Request, res: Response): Promi
   }
 };
 
-export const getYearlySalesReport = async (_req: Request, res: Response): Promise<void> => {
+export const getYearlySalesReport = async (req: Request, res: Response): Promise<void> => {
   try {
+    const { startDate, endDate } = req.query;
+    const match: any = { status: 'Active' };
+    if (startDate || endDate) {
+      match.invoiceDate = {};
+      if (startDate) match.invoiceDate.$gte = new Date(String(startDate));
+      if (endDate) {
+        const end = new Date(String(endDate));
+        end.setHours(23, 59, 59, 999);
+        match.invoiceDate.$lte = end;
+      }
+    }
+
     const report = await Invoice.aggregate([
-      { $match: { status: 'Active' } },
+      { $match: match },
       {
         $group: {
           _id: { $dateToString: { format: '%Y', date: '$invoiceDate' } },
@@ -193,7 +217,17 @@ export const getYearlySalesReport = async (_req: Request, res: Response): Promis
       { $sort: { _id: -1 } },
     ]);
 
-    res.json({ success: true, data: report });
+    const totals = report.reduce(
+      (acc, cur) => ({
+        invoices: acc.invoices + cur.invoiceCount,
+        taxable: acc.taxable + cur.taxableAmount,
+        gst: acc.gst + cur.gstAmount,
+        sales: acc.sales + cur.totalSales,
+      }),
+      { invoices: 0, taxable: 0, gst: 0, sales: 0 }
+    );
+
+    res.json({ success: true, data: report, summary: totals });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -272,7 +306,70 @@ export const getCategorySalesReport = async (req: Request, res: Response): Promi
       { $sort: { totalRevenue: -1 } },
     ]);
 
-    res.json({ success: true, data: report });
+    const totalRevenue = report.reduce((sum, r) => sum + r.totalRevenue, 0);
+    const totalQuantity = report.reduce((sum, r) => sum + r.quantitySold, 0);
+    const totalOrders = report.reduce((sum, r) => sum + r.ordersCount, 0);
+
+    res.json({
+      success: true,
+      data: report,
+      summary: {
+        totalRevenue,
+        sales: totalRevenue,
+        totalQuantity,
+        ordersCount: totalOrders,
+        invoices: totalOrders,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getCustomerSalesReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    const match: any = { status: 'Active' };
+    if (startDate || endDate) {
+      match.invoiceDate = {};
+      if (startDate) match.invoiceDate.$gte = new Date(String(startDate));
+      if (endDate) {
+        const end = new Date(String(endDate));
+        end.setHours(23, 59, 59, 999);
+        match.invoiceDate.$lte = end;
+      }
+    }
+
+    const report = await Invoice.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: '$customerSnapshot.name',
+          companyName: { $first: '$customerSnapshot.companyName' },
+          mobile: { $first: '$customerSnapshot.mobile' },
+          city: { $first: '$customerSnapshot.city' },
+          invoiceCount: { $sum: 1 },
+          taxableAmount: { $sum: '$taxableAmount' },
+          gstAmount: { $sum: '$totalGstAmount' },
+          totalSales: { $sum: '$grandTotal' },
+          lastOrderDate: { $max: '$invoiceDate' },
+        },
+      },
+      { $sort: { totalSales: -1 } },
+    ]);
+
+    const totals = report.reduce(
+      (acc, cur) => ({
+        invoices: acc.invoices + cur.invoiceCount,
+        taxable: acc.taxable + cur.taxableAmount,
+        gst: acc.gst + cur.gstAmount,
+        sales: acc.sales + cur.totalSales,
+      }),
+      { invoices: 0, taxable: 0, gst: 0, sales: 0 }
+    );
+
+    res.json({ success: true, data: report, summary: totals });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

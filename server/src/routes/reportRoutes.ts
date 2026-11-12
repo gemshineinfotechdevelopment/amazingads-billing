@@ -6,6 +6,7 @@ import {
   getYearlySalesReport,
   getProductSalesReport,
   getCategorySalesReport,
+  getCustomerSalesReport,
 } from '../controllers/reportController.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 
@@ -19,6 +20,7 @@ router.get('/monthly-sales', getMonthlySalesReport);
 router.get('/yearly-sales', getYearlySalesReport);
 router.get('/product-sales', getProductSalesReport);
 router.get('/category-sales', getCategorySalesReport);
+router.get('/customer-sales', getCustomerSalesReport);
 
 export default router;
 

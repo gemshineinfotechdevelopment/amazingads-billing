@@ -19,7 +19,7 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
     }
 
     if (all === 'true') {
-      const customers = await Customer.find(query).sort({ name: 1 });
+      const customers = await Customer.find(query).sort({ updatedAt: -1, createdAt: -1 });
       res.json({ success: true, count: customers.length, data: customers });
       return;
     }
@@ -29,7 +29,7 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
     const skip = (pageNum - 1) * limitNum;
 
     const [customers, total] = await Promise.all([
-      Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Customer.find(query).sort({ updatedAt: -1, createdAt: -1 }).skip(skip).limit(limitNum),
       Customer.countDocuments(query),
     ]);
 
@@ -42,6 +42,24 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
         total,
         totalPages: Math.ceil(total / limitNum) || 1,
       },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const lookupCustomerByMobile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const mobile = String(req.query.mobile || '').trim();
+    if (!mobile) {
+      res.status(400).json({ success: false, message: 'Mobile query parameter is required.' });
+      return;
+    }
+    const customer = await Customer.findOne({ mobile });
+    res.json({
+      success: true,
+      data: customer || null,
+      found: Boolean(customer),
     });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -80,29 +98,51 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
     const { name, mobile, email, companyName, gstin, billingAddress, city, state, pincode } =
       req.body;
 
-    if (!name || !mobile || !billingAddress || !city || !state || !pincode) {
+    if (!name || !name.trim() || !mobile || !mobile.trim()) {
       res.status(400).json({
         success: false,
-        message: 'Name, mobile, billing address, city, state, and pincode are required.',
+        message: 'Customer Name and Mobile Number are required.',
       });
       return;
     }
 
-    const customer = await Customer.create({
+    const cleanMobile = mobile.trim();
+    // Check if customer with this mobile already exists
+    let customer = await Customer.findOne({ mobile: cleanMobile });
+    if (customer) {
+      customer.name = name.trim();
+      if (email !== undefined) customer.email = email.trim();
+      if (companyName !== undefined) customer.companyName = companyName.trim();
+      if (gstin !== undefined) customer.gstin = gstin.toUpperCase().trim();
+      if (billingAddress && billingAddress.trim()) customer.billingAddress = billingAddress.trim();
+      if (city && city.trim()) customer.city = city.trim();
+      if (state && state.trim()) customer.state = state.trim();
+      if (pincode && pincode.trim()) customer.pincode = pincode.trim();
+      await customer.save();
+
+      res.status(200).json({
+        success: true,
+        message: `Existing customer "${customer.name}" details updated successfully.`,
+        data: customer,
+      });
+      return;
+    }
+
+    customer = await Customer.create({
       name: name.trim(),
-      mobile: mobile.trim(),
+      mobile: cleanMobile,
       email: email?.trim() || '',
       companyName: companyName?.trim() || '',
       gstin: gstin?.toUpperCase().trim() || '',
-      billingAddress: billingAddress.trim(),
-      city: city.trim(),
-      state: state.trim(),
-      pincode: pincode.trim(),
+      billingAddress: billingAddress?.trim() || 'Direct Counter',
+      city: city?.trim() || 'Sivakasi',
+      state: state?.trim() || 'Tamil Nadu',
+      pincode: pincode?.trim() || '626123',
     });
 
     res.status(201).json({
       success: true,
-      message: 'Customer created successfully',
+      message: 'Customer created successfully and stored in database.',
       data: customer,
     });
   } catch (error: any) {

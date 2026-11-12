@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   User,
   Plus,
@@ -13,6 +13,7 @@ import {
 import { InvoicePrintView } from '../components/invoice/InvoicePrintView';
 import type { Invoice, InvoiceUnit } from '../types/invoice';
 import { invoiceService } from '../services/invoiceService';
+import { customerService } from '../services/customerService';
 import { useSettings } from '../context/SettingsContext';
 import { formatCurrency } from '../utils/formatters';
 import toast from 'react-hot-toast';
@@ -29,7 +30,12 @@ interface DirectBillingItemRow {
 
 export const NewBillingPage: React.FC = () => {
   const navigate = useNavigate();
+  const { id } = useParams<{ id?: string }>();
+  const isEditMode = Boolean(id);
   const { settings } = useSettings();
+
+  const [existingInvoiceNumber, setExistingInvoiceNumber] = useState<string>('');
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   // 1. Direct Customer Details Form
   const [customer, setCustomer] = useState({
@@ -69,6 +75,116 @@ export const NewBillingPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [savedInvoice, setSavedInvoice] = useState<Invoice | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState<string>('');
+
+  // Fetch existing invoice if in Edit Mode
+  useEffect(() => {
+    if (id) {
+      setLoadingInvoice(true);
+      invoiceService
+        .getInvoiceById(id)
+        .then((inv) => {
+          setExistingInvoiceNumber(inv.invoiceNumber);
+          setCustomer({
+            name: inv.customerSnapshot?.name || '',
+            mobile: inv.customerSnapshot?.mobile || '',
+            companyName: inv.customerSnapshot?.companyName || '',
+            gstin: inv.customerSnapshot?.gstin || '',
+            billingAddress: inv.customerSnapshot?.billingAddress || '',
+            city: inv.customerSnapshot?.city || '',
+            state: inv.customerSnapshot?.state || 'Tamil Nadu',
+            pincode: inv.customerSnapshot?.pincode || '',
+            email: inv.customerSnapshot?.email || '',
+          });
+          if (inv.invoiceDate) {
+            setInvoiceDate(new Date(inv.invoiceDate).toISOString().split('T')[0]);
+          }
+          setIsGstInvoice(inv.isGstInvoice);
+          setAdditionalDiscount(inv.additionalDiscount || 0);
+          setNotes(inv.notes || '');
+          if (inv.items && inv.items.length > 0) {
+            setItems(
+              inv.items.map((item) => ({
+                productId: item.productId,
+                name: item.name,
+                sku: item.sku,
+                category: item.category,
+                size: item.size,
+                quantity: item.quantity,
+                unit: item.unit,
+                rate: item.rate,
+                discount: item.discount,
+                gstPercentage: item.gstPercentage,
+              }))
+            );
+          }
+        })
+        .catch((err) => {
+          console.error(err);
+          toast.error('Failed to load invoice for editing');
+          navigate('/invoices');
+        })
+        .finally(() => setLoadingInvoice(false));
+    }
+  }, [id, navigate]);
+
+  // Fetch upcoming invoice number preview on mount and whenever invoice settings change (only in Create mode)
+  useEffect(() => {
+    if (!isEditMode) {
+      invoiceService
+        .getNextInvoiceNumber()
+        .then((num) => setNextInvoiceNumber(num))
+        .catch((err) => console.error('Failed to peek next invoice number:', err));
+    }
+  }, [isEditMode, settings?.invoicePrefix, settings?.financialYear, settings?.startingNumber]);
+
+  // Synchronize company defaults when settings load
+  useEffect(() => {
+    if (settings) {
+      setCustomer((prev) => ({
+        ...prev,
+        state: prev.state ? prev.state : (settings.state || 'Tamil Nadu'),
+      }));
+      setItems((prev) => {
+        if (
+          prev.length === 1 &&
+          !prev[0].name &&
+          settings.defaultGstRate !== undefined &&
+          prev[0].gstPercentage === 12
+        ) {
+          return [{ ...prev[0], gstPercentage: settings.defaultGstRate }];
+        }
+        return prev;
+      });
+    }
+  }, [settings]);
+
+  // Quick customer lookup on entering 10-digit mobile number
+  const handleMobileChange = async (val: string) => {
+    setCustomer((prev) => ({ ...prev, mobile: val }));
+    const cleaned = val.replace(/\D/g, '').trim();
+    if (cleaned.length === 10) {
+      try {
+        const existing = await customerService.lookupByMobile(cleaned);
+        if (existing) {
+          setCustomer({
+            name: existing.name || '',
+            mobile: existing.mobile || cleaned,
+            companyName: existing.companyName || '',
+            gstin: existing.gstin || '',
+            billingAddress: existing.billingAddress || '',
+            city: existing.city || '',
+            state: existing.state || settings?.state || 'Tamil Nadu',
+            pincode: existing.pincode || '',
+            email: existing.email || '',
+          });
+          toast.success(`Existing customer found: ${existing.name}`);
+        }
+      } catch (e) {
+        // silent catch
+      }
+    }
+  };
 
   // Determine Inter-state (IGST) vs Intra-state (CGST + SGST)
   const isInterState = useMemo(() => {
@@ -237,7 +353,7 @@ export const NewBillingPage: React.FC = () => {
         invoiceDate,
         items: items.map((i, idx) => ({
           name: i.name.trim(),
-          sku: `CAL-${idx + 101}`,
+          sku: String(idx + 1),
           category: 'Calendar Printing',
           size: i.size.trim() || 'Standard',
           quantity: Number(i.quantity) || 1,
@@ -250,6 +366,22 @@ export const NewBillingPage: React.FC = () => {
         isGstInvoice,
         notes,
       };
+
+      if (isEditMode && id) {
+        const updated = await invoiceService.updateInvoice(id, payload);
+        toast.success(`Invoice #${updated.invoiceNumber} updated successfully!`);
+        setSavedInvoice(updated);
+
+        if (andPrint) {
+          setShowPreviewModal(true);
+        } else {
+          setTimeout(() => {
+            navigate('/invoices');
+          }, 500);
+        }
+
+        return updated;
+      }
 
       const created = await invoiceService.createInvoice(payload);
       toast.success(`Bill generated successfully: ${created.invoiceNumber}`);
@@ -272,26 +404,45 @@ export const NewBillingPage: React.FC = () => {
     }
   };
 
+  if (loadingInvoice) {
+    return (
+      <div className="bg-white rounded-xl p-12 text-center text-slate-400 border border-slate-200">
+        Loading invoice #{existingInvoiceNumber || id} for editing...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 1. Header with Actions */}
       <div className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <span className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider flex items-center gap-1.5">
+          <span className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
             <Receipt className="w-4 h-4" />
-            <span>Direct Billing Counter</span>
+            <span>{isEditMode ? 'Modify Invoice Record' : 'Direct Billing Counter'}</span>
+            {isEditMode ? (
+              <span className="ml-1 sm:ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-mono font-bold border border-emerald-200">
+                Editing Invoice #{existingInvoiceNumber}
+              </span>
+            ) : nextInvoiceNumber ? (
+              <span className="ml-1 sm:ml-2 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-mono font-bold border border-blue-200">
+                Next Bill: {nextInvoiceNumber}
+              </span>
+            ) : null}
           </span>
-          <h2 className="text-lg sm:text-xl font-bold text-[#142B4A]">New Calendar Invoice</h2>
+          <h2 className="text-lg sm:text-xl font-bold text-[#142B4A]">
+            {isEditMode ? `Edit Calendar Invoice #${existingInvoiceNumber}` : 'New Calendar Invoice'}
+          </h2>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           <button
             type="button"
-            onClick={handleReset}
+            onClick={() => (isEditMode ? navigate('/invoices') : handleReset())}
             className="flex-1 sm:flex-initial justify-center px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1.5 transition"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset</span>
+            <span>{isEditMode ? 'Cancel Edit' : 'Reset'}</span>
           </button>
 
           <button
@@ -300,8 +451,8 @@ export const NewBillingPage: React.FC = () => {
             onClick={() => handleSaveInvoice(false)}
             className="flex-1 sm:flex-initial justify-center px-3.5 py-2 text-xs font-bold text-white bg-[#142B4A] hover:bg-[#1e3c66] rounded-lg shadow-sm flex items-center gap-1.5 transition disabled:opacity-50"
           >
-            <Save className="w-4 h-4 text-blue-300" />
-            <span>{submitting ? 'Saving...' : 'Save Bill'}</span>
+            <Save className="w-3.5 h-3.5 text-blue-300" />
+            <span>{submitting ? 'Saving...' : isEditMode ? 'Update Invoice' : 'Save Invoice'}</span>
           </button>
 
           <button
@@ -311,7 +462,7 @@ export const NewBillingPage: React.FC = () => {
             className="w-full sm:w-auto justify-center px-4 py-2 text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-700 rounded-lg shadow-sm flex items-center gap-1.5 transition disabled:opacity-50"
           >
             <Printer className="w-4 h-4" />
-            <span>Save & Print A4</span>
+            <span>{submitting ? 'Saving...' : isEditMode ? 'Update & Print A4' : 'Save & Print A4'}</span>
           </button>
         </div>
       </div>
@@ -374,7 +525,7 @@ export const NewBillingPage: React.FC = () => {
               required
               placeholder="10-digit mobile"
               value={customer.mobile}
-              onChange={(e) => setCustomer({ ...customer, mobile: e.target.value })}
+              onChange={(e) => handleMobileChange(e.target.value)}
               className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
             />
           </div>
@@ -907,7 +1058,7 @@ export const NewBillingPage: React.FC = () => {
                 className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
               >
                 <Save className="w-4 h-4 text-blue-300" />
-                <span>Save Invoice</span>
+                <span>{submitting ? 'Saving...' : isEditMode ? 'Update Invoice' : 'Save Invoice'}</span>
               </button>
 
               <button
@@ -917,7 +1068,7 @@ export const NewBillingPage: React.FC = () => {
                 className="flex-1 py-2.5 px-4 bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
               >
                 <FileCheck2 className="w-4 h-4" />
-                <span>Save & Print A4</span>
+                <span>{submitting ? 'Saving...' : isEditMode ? 'Update & Print A4' : 'Save & Print A4'}</span>
               </button>
             </div>
           </div>

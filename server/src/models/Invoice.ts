@@ -33,6 +33,7 @@ export interface ICustomerSnapshot {
 
 export interface IInvoice extends Document {
   invoiceNumber: string;
+  sequenceNumber?: number;
   invoiceDate: Date;
   customer: Types.ObjectId;
   customerSnapshot: ICustomerSnapshot;
@@ -99,6 +100,7 @@ const customerSnapshotSchema = new Schema<ICustomerSnapshot>(
 const invoiceSchema = new Schema<IInvoice>(
   {
     invoiceNumber: { type: String, required: true, unique: true, index: true },
+    sequenceNumber: { type: Number, index: true },
     invoiceDate: { type: Date, required: true, default: Date.now },
     customer: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     customerSnapshot: { type: customerSnapshotSchema, required: true },

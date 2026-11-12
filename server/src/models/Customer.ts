@@ -21,10 +21,10 @@ const customerSchema = new Schema<ICustomer>(
     email: { type: String, trim: true, lowercase: true, default: '' },
     companyName: { type: String, trim: true, default: '' },
     gstin: { type: String, trim: true, uppercase: true, default: '' },
-    billingAddress: { type: String, required: true, trim: true },
-    city: { type: String, required: true, trim: true },
-    state: { type: String, required: true, trim: true },
-    pincode: { type: String, required: true, trim: true },
+    billingAddress: { type: String, trim: true, default: 'Direct Counter' },
+    city: { type: String, trim: true, default: 'Sivakasi' },
+    state: { type: String, trim: true, default: 'Tamil Nadu' },
+    pincode: { type: String, trim: true, default: '626123' },
   },
   { timestamps: true }
 );

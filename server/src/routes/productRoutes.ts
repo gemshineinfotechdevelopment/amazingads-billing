@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getProducts,
+  getNextProductSkuPreview,
   getProductById,
   createProduct,
   updateProduct,
@@ -13,6 +14,7 @@ const router = Router();
 router.use(authenticateAdmin);
 
 router.get('/', getProducts);
+router.get('/next-sku', getNextProductSkuPreview);
 router.post('/', createProduct);
 router.get('/:id', getProductById);
 router.put('/:id', updateProduct);

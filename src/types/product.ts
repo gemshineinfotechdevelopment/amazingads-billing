@@ -11,6 +11,7 @@ export interface Product {
   _id: string;
   name: string;
   sku: string;
+  sequenceNumber?: number;
   category: ProductCategory;
   size: string;
   description?: string;
@@ -24,6 +25,7 @@ export interface Product {
 export interface ProductInput {
   name: string;
   sku: string;
+  sequenceNumber?: number;
   category: ProductCategory;
   size: string;
   description?: string;

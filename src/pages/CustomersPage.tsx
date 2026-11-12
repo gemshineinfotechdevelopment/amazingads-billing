@@ -115,19 +115,29 @@ export const CustomersPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.mobile || !formData.billingAddress || !formData.city || !formData.state || !formData.pincode) {
-      toast.error('Please fill in all required fields.');
+    if (!formData.name.trim() || !formData.mobile.trim()) {
+      toast.error('Customer Name and Mobile Number are required.');
       return;
     }
+
+    const payload: CustomerInput = {
+      ...formData,
+      name: formData.name.trim(),
+      mobile: formData.mobile.trim(),
+      billingAddress: formData.billingAddress?.trim() || 'Direct Counter',
+      city: formData.city?.trim() || 'Sivakasi',
+      state: formData.state?.trim() || 'Tamil Nadu',
+      pincode: formData.pincode?.trim() || '626123',
+    };
 
     try {
       setSubmitting(true);
       if (editingCustomer) {
-        await customerService.updateCustomer(editingCustomer._id, formData);
-        toast.success('Customer updated successfully!');
+        await customerService.updateCustomer(editingCustomer._id, payload);
+        toast.success('Customer updated successfully in database!');
       } else {
-        await customerService.createCustomer(formData);
-        toast.success('Customer added successfully!');
+        await customerService.createCustomer(payload);
+        toast.success('Customer created successfully in database!');
       }
       setIsModalOpen(false);
       loadCustomers();
@@ -449,11 +459,10 @@ export const CustomersPage: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Billing Address *
+                  Billing Address (optional)
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="Shop / Office Address, Street"
                   value={formData.billingAddress}
                   onChange={(e) => setFormData({ ...formData, billingAddress: e.target.value })}
@@ -463,11 +472,10 @@ export const CustomersPage: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">City *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">City</label>
                   <input
                     type="text"
-                    required
-                    placeholder="Madurai"
+                    placeholder="Sivakasi / Madurai"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"
@@ -475,10 +483,9 @@ export const CustomersPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">State *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">State</label>
                   <input
                     type="text"
-                    required
                     placeholder="Tamil Nadu"
                     value={formData.state}
                     onChange={(e) => setFormData({ ...formData, state: e.target.value })}
@@ -487,11 +494,10 @@ export const CustomersPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Pincode *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Pincode</label>
                   <input
                     type="text"
-                    required
-                    placeholder="625001"
+                    placeholder="626123"
                     value={formData.pincode}
                     onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none"

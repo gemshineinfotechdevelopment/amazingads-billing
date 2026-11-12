@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { Invoice, IInvoiceItem } from '../models/Invoice.js';
 import { Customer } from '../models/Customer.js';
 import { CompanySettings } from '../models/CompanySettings.js';
-import { getNextInvoiceNumber } from '../utils/counter.js';
+import { InvoiceCounter } from '../models/InvoiceCounter.js';
+import { getNextInvoiceNumber, peekNextInvoiceNumber, formatInvoiceNumber } from '../utils/counter.js';
 
 // Helper to calculate invoice financial figures safely
 export const calculateInvoiceFigures = (
@@ -134,8 +135,9 @@ export const getInvoices = async (req: Request, res: Response): Promise<void> =>
     const limitNum = Math.max(1, Number(limit));
     const skip = (pageNum - 1) * limitNum;
 
+    // Display "Last In, First" (newest / highest sequence invoice first)
     const [invoices, total] = await Promise.all([
-      Invoice.find(query).sort({ invoiceDate: -1, createdAt: -1 }).skip(skip).limit(limitNum),
+      Invoice.find(query).sort({ sequenceNumber: -1, createdAt: -1, _id: -1 }).skip(skip).limit(limitNum),
       Invoice.countDocuments(query),
     ]);
 
@@ -147,6 +149,20 @@ export const getInvoices = async (req: Request, res: Response): Promise<void> =>
         limit: limitNum,
         total,
         totalPages: Math.ceil(total / limitNum) || 1,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getNextInvoiceNumberPreview = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const nextInvoiceNumber = await peekNextInvoiceNumber();
+    res.json({
+      success: true,
+      data: {
+        nextInvoiceNumber,
       },
     });
   } catch (error: any) {
@@ -204,13 +220,14 @@ export const createInvoice = async (req: Request, res: Response): Promise<void> 
           email: customerData.email?.trim() || '',
           companyName: customerData.companyName?.trim() || '',
           gstin: customerData.gstin?.toUpperCase()?.trim() || '',
-          billingAddress: customerData.billingAddress?.trim() || 'Counter Sale',
-          city: customerData.city?.trim() || 'Local',
+          billingAddress: customerData.billingAddress?.trim() || 'Direct Counter',
+          city: customerData.city?.trim() || 'Sivakasi',
           state: customerData.state?.trim() || 'Tamil Nadu',
-          pincode: customerData.pincode?.trim() || '600001',
+          pincode: customerData.pincode?.trim() || '626123',
         });
       } else {
         if (customerData.name) customer.name = customerData.name.trim();
+        if (customerData.email !== undefined) customer.email = customerData.email.trim();
         if (customerData.billingAddress) customer.billingAddress = customerData.billingAddress.trim();
         if (customerData.city) customer.city = customerData.city.trim();
         if (customerData.state) customer.state = customerData.state.trim();
@@ -230,8 +247,9 @@ export const createInvoice = async (req: Request, res: Response): Promise<void> 
     // Fetch company settings to compare states (Intra vs Inter-state IGST)
     const settings = await CompanySettings.findOne();
     const companyState = settings?.state || 'Tamil Nadu';
+    const customerState = customer.state || 'Tamil Nadu';
     const isInterState =
-      customer.state.trim().toLowerCase() !== companyState.trim().toLowerCase();
+      customerState.trim().toLowerCase() !== companyState.trim().toLowerCase();
 
     // Calculate figures
     const figures = calculateInvoiceFigures(
@@ -241,11 +259,13 @@ export const createInvoice = async (req: Request, res: Response): Promise<void> 
       isInterState
     );
 
-    // Atomically generate sequential invoice number
+    // Atomically generate sequential invoice number (1, 2, 3...)
     const invoiceNumber = await getNextInvoiceNumber();
+    const sequenceNumber = Number(invoiceNumber) || 1;
 
     const invoice = await Invoice.create({
       invoiceNumber,
+      sequenceNumber,
       invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
       customer: customer._id,
       customerSnapshot: {
@@ -288,7 +308,15 @@ export const createInvoice = async (req: Request, res: Response): Promise<void> 
 
 export const updateInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { items, additionalDiscount, isGstInvoice, notes, invoiceDate } = req.body;
+    const {
+      items,
+      additionalDiscount,
+      isGstInvoice,
+      notes,
+      invoiceDate,
+      customerData,
+      customerSnapshot,
+    } = req.body;
 
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) {
@@ -301,27 +329,65 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (items && Array.isArray(items) && items.length > 0) {
-      const figures = calculateInvoiceFigures(
-        items,
-        additionalDiscount !== undefined ? additionalDiscount : invoice.additionalDiscount,
-        isGstInvoice !== undefined ? isGstInvoice : invoice.isGstInvoice,
-        invoice.isInterState
-      );
+    // Update Customer Snapshot if provided
+    const cust = customerData || customerSnapshot;
+    if (cust) {
+      if (cust.name) invoice.customerSnapshot.name = cust.name.trim();
+      if (cust.mobile) invoice.customerSnapshot.mobile = cust.mobile.trim();
+      if (cust.email !== undefined) invoice.customerSnapshot.email = cust.email.trim();
+      if (cust.companyName !== undefined) invoice.customerSnapshot.companyName = cust.companyName.trim();
+      if (cust.gstin !== undefined) invoice.customerSnapshot.gstin = cust.gstin.trim().toUpperCase();
+      if (cust.billingAddress) invoice.customerSnapshot.billingAddress = cust.billingAddress.trim();
+      if (cust.city) invoice.customerSnapshot.city = cust.city.trim();
+      if (cust.state) invoice.customerSnapshot.state = cust.state.trim();
+      if (cust.pincode) invoice.customerSnapshot.pincode = cust.pincode.trim();
 
-      invoice.items = figures.processedItems;
-      invoice.subtotal = figures.subtotal;
-      invoice.itemDiscountTotal = figures.itemDiscountTotal;
-      invoice.additionalDiscount = figures.additionalDiscount;
-      invoice.taxableAmount = figures.taxableAmount;
-      invoice.isGstInvoice = figures.isGstInvoice;
-      invoice.cgstAmount = figures.cgstAmount;
-      invoice.sgstAmount = figures.sgstAmount;
-      invoice.igstAmount = figures.igstAmount;
-      invoice.totalGstAmount = figures.totalGstAmount;
-      invoice.roundOff = figures.roundOff;
-      invoice.grandTotal = figures.grandTotal;
+      const settings = await CompanySettings.findOne();
+      const compState = settings?.state || 'Tamil Nadu';
+      const custState = invoice.customerSnapshot.state || 'Tamil Nadu';
+      invoice.isInterState = custState.trim().toLowerCase() !== compState.trim().toLowerCase();
+
+      if (invoice.customer) {
+        await Customer.findByIdAndUpdate(invoice.customer, {
+          name: invoice.customerSnapshot.name,
+          mobile: invoice.customerSnapshot.mobile,
+          email: invoice.customerSnapshot.email,
+          companyName: invoice.customerSnapshot.companyName,
+          gstin: invoice.customerSnapshot.gstin,
+          billingAddress: invoice.customerSnapshot.billingAddress,
+          city: invoice.customerSnapshot.city,
+          state: invoice.customerSnapshot.state,
+          pincode: invoice.customerSnapshot.pincode,
+        });
+      }
     }
+
+    // Recalculate invoice items and financial figures
+    const finalItems = items && Array.isArray(items) && items.length > 0 ? items : invoice.items;
+    const finalAdditionalDisc =
+      additionalDiscount !== undefined ? Number(additionalDiscount) : invoice.additionalDiscount;
+    const finalIsGst =
+      isGstInvoice !== undefined ? Boolean(isGstInvoice) : invoice.isGstInvoice;
+
+    const figures = calculateInvoiceFigures(
+      finalItems,
+      finalAdditionalDisc,
+      finalIsGst,
+      invoice.isInterState
+    );
+
+    invoice.items = figures.processedItems;
+    invoice.subtotal = figures.subtotal;
+    invoice.itemDiscountTotal = figures.itemDiscountTotal;
+    invoice.additionalDiscount = figures.additionalDiscount;
+    invoice.taxableAmount = figures.taxableAmount;
+    invoice.isGstInvoice = figures.isGstInvoice;
+    invoice.cgstAmount = figures.cgstAmount;
+    invoice.sgstAmount = figures.sgstAmount;
+    invoice.igstAmount = figures.igstAmount;
+    invoice.totalGstAmount = figures.totalGstAmount;
+    invoice.roundOff = figures.roundOff;
+    invoice.grandTotal = figures.grandTotal;
 
     if (notes !== undefined) invoice.notes = notes.trim();
     if (invoiceDate) invoice.invoiceDate = new Date(invoiceDate);
@@ -330,7 +396,7 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
 
     res.json({
       success: true,
-      message: 'Invoice updated successfully',
+      message: `Invoice #${invoice.invoiceNumber} updated successfully`,
       data: invoice,
     });
   } catch (error: any) {
@@ -368,4 +434,75 @@ export const cancelInvoice = async (req: Request, res: Response): Promise<void> 
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Resequence all invoices starting from 1 (or startingNumber) in continuous sequential order.
+ * Stores pure numbers 1, 2, 3... in both sequenceNumber and invoiceNumber across MongoDB.
+ */
+export const resequenceInvoices = async (): Promise<void> => {
+  const settings = await CompanySettings.findOne();
+  const startingNumber = Math.max(1, settings?.startingNumber ?? 1);
+  const identifier = 'invoice-sequence';
+
+  // Find all remaining invoices sorted chronologically
+  const invoices = await Invoice.find().sort({ createdAt: 1, _id: 1 });
+
+  // Phase 1: Temporary numbers to prevent MongoDB unique index collisions
+  for (let i = 0; i < invoices.length; i++) {
+    const inv = invoices[i];
+    await Invoice.updateOne(
+      { _id: inv._id },
+      { $set: { invoiceNumber: `TEMP-SEQ-${i + 1}-${inv._id}` } }
+    );
+  }
+
+  // Phase 2: Assign consecutive 1-based sequence (1, 2, 3...)
+  for (let i = 0; i < invoices.length; i++) {
+    const inv = invoices[i];
+    const seq = startingNumber + i;
+    const finalNumber = String(seq);
+
+    await Invoice.updateOne(
+      { _id: inv._id },
+      {
+        $set: {
+          sequenceNumber: seq,
+          invoiceNumber: finalNumber,
+        },
+      }
+    );
+  }
+
+  // Phase 3: Synchronize atomic sequence counter in DB
+  const currentMaxSeq = invoices.length > 0 ? startingNumber + invoices.length - 1 : 0;
+  await InvoiceCounter.findOneAndUpdate(
+    { identifier },
+    { $set: { seq: currentMaxSeq } },
+    { upsert: true }
+  );
+};
+
+export const deleteInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) {
+      res.status(404).json({ success: false, message: 'Invoice not found.' });
+      return;
+    }
+
+    const deletedNumber = invoice.invoiceNumber;
+    await Invoice.findByIdAndDelete(req.params.id);
+
+    // Resequence remaining invoices continuous 1, 2, 3...
+    await resequenceInvoices();
+
+    res.json({
+      success: true,
+      message: `Invoice ${deletedNumber} deleted and remaining invoice numbers re-sequenced successfully.`,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 

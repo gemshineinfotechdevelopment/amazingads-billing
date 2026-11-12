@@ -55,6 +55,7 @@ export function App() {
               <Route element={<DashboardLayout />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/billing/new" element={<NewBillingPage />} />
+                <Route path="/billing/edit/:id" element={<NewBillingPage />} />
                 <Route path="/invoices" element={<AllInvoicesPage />} />
                 <Route path="/products" element={<ProductsPage />} />
                 <Route path="/customers" element={<CustomersPage />} />

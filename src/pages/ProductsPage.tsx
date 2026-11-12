@@ -84,9 +84,10 @@ export const ProductsPage: React.FC = () => {
 
   const handleOpenAdd = () => {
     setEditingProduct(null);
+    const estimatedNext = String((totalItems || products.length || 0) + 1);
     setFormData({
       name: '',
-      sku: `CAL-${Math.floor(100 + Math.random() * 900)}`,
+      sku: estimatedNext,
       category: 'Gold Foil Calendar',
       size: '15x20 inch',
       description: '',
@@ -94,6 +95,16 @@ export const ProductsPage: React.FC = () => {
       status: 'Active',
     });
     setIsModalOpen(true);
+
+    // Fetch verified next sequential SKU from database
+    productService
+      .getNextSku()
+      .then((accurateSku) => {
+        if (accurateSku) {
+          setFormData((prev) => ({ ...prev, sku: accurateSku }));
+        }
+      })
+      .catch((err) => console.error('Failed to get next SKU:', err));
   };
 
   const handleOpenEdit = (p: Product) => {
@@ -139,7 +150,7 @@ export const ProductsPage: React.FC = () => {
     if (!deletingProduct) return;
     try {
       await productService.deleteProduct(deletingProduct._id);
-      toast.success('Product deleted successfully');
+      toast.success('Product deleted and sequence re-indexed (1, 2, 3...)');
       loadProducts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to delete product');
@@ -237,8 +248,8 @@ export const ProductsPage: React.FC = () => {
             products.map((p) => (
               <div key={p._id} className="p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-[#142B4A] text-xs">
-                    {p.sku}
+                  <span className="font-mono font-bold text-[#142B4A] text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                    SKU #{p.sku}
                   </span>
                   <span
                     className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
@@ -324,7 +335,11 @@ export const ProductsPage: React.FC = () => {
               ) : (
                 products.map((p) => (
                   <tr key={p._id} className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-mono font-bold text-[#142B4A]">{p.sku}</td>
+                    <td className="py-3 px-4 font-mono font-bold text-[#142B4A]">
+                      <span className="inline-block px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs">
+                        #{p.sku}
+                      </span>
+                    </td>
                     <td className="py-3 px-4">
                       <p className="font-bold text-slate-900">{p.name}</p>
                       {p.description && (
@@ -419,17 +434,32 @@ export const ProductsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    SKU / Code *
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>SKU Code # *</span>
+                    {!editingProduct && (
+                      <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                        Auto Sequence
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="CAL-GF-01"
+                    readOnly={!editingProduct}
+                    placeholder="1"
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
+                    className={`w-full px-3 py-2 text-xs rounded-lg border border-slate-200 outline-none font-mono font-bold ${
+                      !editingProduct
+                        ? 'bg-slate-50 text-[#142B4A] cursor-not-allowed'
+                        : 'bg-white text-slate-900 focus:border-[#2563EB]'
+                    }`}
                   />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {!editingProduct
+                      ? 'Sequenced automatically (1, 2, 3...)'
+                      : 'Product sequential identifier'}
+                  </p>
                 </div>
 
                 <div>

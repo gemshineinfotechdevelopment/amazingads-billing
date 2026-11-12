@@ -5,12 +5,14 @@ import {
   FileSpreadsheet,
   Package,
   Layers,
+  Users,
+  RotateCcw,
 } from 'lucide-react';
 import { reportService } from '../services/reportService';
 import { formatCurrency } from '../utils/formatters';
 import toast from 'react-hot-toast';
 
-type ReportTab = 'daily' | 'monthly' | 'yearly' | 'product' | 'category';
+type ReportTab = 'daily' | 'monthly' | 'yearly' | 'product' | 'category' | 'customer';
 
 export const ReportsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ReportTab>('daily');
@@ -29,38 +31,33 @@ export const ReportsPage: React.FC = () => {
   const loadReport = async () => {
     try {
       setLoading(true);
+      const dateParams = {
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      };
+
+      let res: { data: any[]; summary?: any } | null = null;
+
       if (activeTab === 'daily') {
-        const res = await reportService.getDailySalesReport({
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-        });
-        setReportData(res.data);
-        setReportSummary(res.summary);
+        res = await reportService.getDailySalesReport(dateParams);
       } else if (activeTab === 'monthly') {
-        const res = await reportService.getMonthlySalesReport();
-        setReportData(res.data);
-        setReportSummary(res.summary);
+        res = await reportService.getMonthlySalesReport(dateParams);
       } else if (activeTab === 'yearly') {
-        const res = await reportService.getYearlySalesReport();
-        setReportData(res);
-        setReportSummary(null);
+        res = await reportService.getYearlySalesReport(dateParams);
       } else if (activeTab === 'product') {
-        const res = await reportService.getProductSalesReport({
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-        });
-        setReportData(res.data);
-        setReportSummary(res.summary);
+        res = await reportService.getProductSalesReport(dateParams);
       } else if (activeTab === 'category') {
-        const res = await reportService.getCategorySalesReport({
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-        });
-        setReportData(res);
-        setReportSummary(null);
+        res = await reportService.getCategorySalesReport(dateParams);
+      } else if (activeTab === 'customer') {
+        res = await reportService.getCustomerSalesReport(dateParams);
+      }
+
+      if (res) {
+        setReportData(res.data || []);
+        setReportSummary(res.summary || null);
       }
     } catch {
-      toast.error('Failed to load report data');
+      toast.error('Failed to load report data from database');
     } finally {
       setLoading(false);
     }
@@ -83,12 +80,17 @@ export const ReportsPage: React.FC = () => {
     } else if (activeTab === 'product') {
       csvContent += 'Product Name,SKU,Category,Size,Quantity Sold,Total Revenue (INR)\r\n';
       reportData.forEach((row) => {
-        csvContent += `"${row._id}",${row.sku},"${row.category}","${row.size}",${row.quantitySold},${row.totalRevenue}\r\n`;
+        csvContent += `"${row._id}",${row.sku || '-'},"${row.category}","${row.size}",${row.quantitySold},${row.totalRevenue}\r\n`;
       });
     } else if (activeTab === 'category') {
       csvContent += 'Category,Orders Count,Quantity Sold,Total Revenue (INR)\r\n';
       reportData.forEach((row) => {
         csvContent += `"${row._id}",${row.ordersCount},${row.quantitySold},${row.totalRevenue}\r\n`;
+      });
+    } else if (activeTab === 'customer') {
+      csvContent += 'Customer Name,Company,Mobile,Invoices Count,Taxable (INR),GST (INR),Total Billed (INR)\r\n';
+      reportData.forEach((row) => {
+        csvContent += `"${row._id}","${row.companyName || ''}",${row.mobile},${row.invoiceCount},${row.taxableAmount},${row.gstAmount},${row.totalSales}\r\n`;
       });
     }
 
@@ -134,6 +136,7 @@ export const ReportsPage: React.FC = () => {
               { id: 'yearly', label: 'Yearly Sales', icon: BarChart3 },
               { id: 'product', label: 'Product-wise', icon: Package },
               { id: 'category', label: 'Category-wise', icon: Layers },
+              { id: 'customer', label: 'Customer-wise', icon: Users },
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -153,52 +156,77 @@ export const ReportsPage: React.FC = () => {
             })}
           </div>
 
-          {/* Date range picker (for daily/product/category) */}
-          {(activeTab === 'daily' || activeTab === 'product' || activeTab === 'category') && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-500 font-medium">Filter Range:</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="px-2.5 py-1 text-xs rounded-md border border-slate-200 outline-none"
-              />
-              <span className="text-slate-400 text-xs">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="px-2.5 py-1 text-xs rounded-md border border-slate-200 outline-none"
-              />
-            </div>
-          )}
+          {/* Date range picker for filtering */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 font-medium">Filter Range:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-2.5 py-1 text-xs rounded-md border border-slate-200 outline-none"
+            />
+            <span className="text-slate-400 text-xs">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-2.5 py-1 text-xs rounded-md border border-slate-200 outline-none"
+            />
+            {(startDate || endDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                title="Reset Date Filters"
+                className="p-1 rounded-md border border-slate-200 hover:bg-slate-100 text-slate-500 transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Summary Metric Cards */}
         {reportSummary && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 pt-2">
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">Total Sales</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">Total Sales Turnover</span>
               <p className="text-base sm:text-lg font-black text-[#142B4A] font-mono mt-0.5">
-                {formatCurrency(reportSummary.sales || reportSummary.totalRevenue || 0)}
+                {formatCurrency(reportSummary.sales ?? reportSummary.totalRevenue ?? 0)}
               </p>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">Invoices Count</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">
+                {activeTab === 'product' || activeTab === 'category' ? 'Total Units Sold' : 'Invoices Count'}
+              </span>
               <p className="text-base sm:text-lg font-bold text-slate-800 font-mono mt-0.5">
-                {reportSummary.invoices || reportSummary.totalQuantity || 0}
+                {reportSummary.invoices ?? reportSummary.totalQuantity ?? reportSummary.ordersCount ?? 0}
               </p>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">Taxable Total</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">
+                {activeTab === 'product' ? 'Unique Products' : activeTab === 'category' ? 'Categories' : 'Taxable Total'}
+              </span>
               <p className="text-base sm:text-lg font-bold text-slate-800 font-mono mt-0.5">
-                {formatCurrency(reportSummary.taxable || 0)}
+                {reportSummary.taxable !== undefined
+                  ? formatCurrency(reportSummary.taxable)
+                  : (reportSummary.uniqueProducts ?? reportData.length)}
               </p>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">Total GST</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">
+                {reportSummary.gst !== undefined ? 'GST Collected' : 'Avg Order Value'}
+              </span>
               <p className="text-base sm:text-lg font-bold text-emerald-600 font-mono mt-0.5">
-                {formatCurrency(reportSummary.gst || 0)}
+                {reportSummary.gst !== undefined
+                  ? formatCurrency(reportSummary.gst)
+                  : formatCurrency(
+                      reportSummary.totalRevenue && reportSummary.totalQuantity
+                        ? Math.round(reportSummary.totalRevenue / Math.max(1, reportSummary.totalQuantity))
+                        : 0
+                    )}
               </p>
             </div>
           </div>
@@ -227,26 +255,36 @@ export const ReportsPage: React.FC = () => {
                   <th className="py-3 px-4 text-center">Units Sold</th>
                   <th className="py-3 px-4 text-right">Total Sales Revenue</th>
                 </tr>
-              ) : (
+              ) : activeTab === 'category' ? (
                 <tr>
                   <th className="py-3 px-4">Calendar Category</th>
                   <th className="py-3 px-4 text-center">Order Count</th>
                   <th className="py-3 px-4 text-center">Units Sold</th>
                   <th className="py-3 px-4 text-right">Total Revenue</th>
                 </tr>
+              ) : (
+                <tr>
+                  <th className="py-3 px-4">Customer Name</th>
+                  <th className="py-3 px-4">Company Name</th>
+                  <th className="py-3 px-4">Mobile</th>
+                  <th className="py-3 px-4 text-center">Invoices Count</th>
+                  <th className="py-3 px-4 text-right">Taxable Turnover</th>
+                  <th className="py-3 px-4 text-right">GST Paid</th>
+                  <th className="py-3 px-4 text-right">Total Net Billed</th>
+                </tr>
               )}
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    Generating sales report...
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    Generating sales report from database...
                   </td>
                 </tr>
               ) : reportData.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    No sales data available for the chosen parameters.
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    No sales data available in the database for the chosen parameters.
                   </td>
                 </tr>
               ) : activeTab === 'daily' || activeTab === 'monthly' || activeTab === 'yearly' ? (
@@ -271,7 +309,7 @@ export const ReportsPage: React.FC = () => {
                 reportData.map((row, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/60 transition">
                     <td className="py-3.5 px-4 font-bold text-slate-900">{row._id}</td>
-                    <td className="py-3.5 px-4 font-mono text-slate-500">{row.sku}</td>
+                    <td className="py-3.5 px-4 font-mono text-slate-500">{row.sku || '-'}</td>
                     <td className="py-3.5 px-4">
                       <span className="px-2 py-0.5 rounded bg-blue-50 text-[#2563EB] text-[11px] font-semibold">
                         {row.category}
@@ -286,7 +324,7 @@ export const ReportsPage: React.FC = () => {
                     </td>
                   </tr>
                 ))
-              ) : (
+              ) : activeTab === 'category' ? (
                 reportData.map((row, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/60 transition">
                     <td className="py-3.5 px-4 font-bold text-slate-900">{row._id}</td>
@@ -298,6 +336,20 @@ export const ReportsPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-[#142B4A] text-sm">
                       {formatCurrency(row.totalRevenue)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                reportData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/60 transition">
+                    <td className="py-3.5 px-4 font-bold text-slate-900">{row._id}</td>
+                    <td className="py-3.5 px-4 font-semibold text-slate-700">{row.companyName || '-'}</td>
+                    <td className="py-3.5 px-4 font-mono text-slate-600">{row.mobile}</td>
+                    <td className="py-3.5 px-4 text-center font-bold text-slate-800">{row.invoiceCount}</td>
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-700">{formatCurrency(row.taxableAmount)}</td>
+                    <td className="py-3.5 px-4 text-right font-mono text-emerald-600 font-medium">{formatCurrency(row.gstAmount)}</td>
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-[#142B4A] text-sm">
+                      {formatCurrency(row.totalSales)}
                     </td>
                   </tr>
                 ))

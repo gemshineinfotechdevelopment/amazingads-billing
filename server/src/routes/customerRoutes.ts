@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getCustomers,
+  lookupCustomerByMobile,
   getCustomerById,
   createCustomer,
   updateCustomer,
@@ -13,6 +14,7 @@ const router = Router();
 router.use(authenticateAdmin);
 
 router.get('/', getCustomers);
+router.get('/lookup', lookupCustomerByMobile);
 router.post('/', createCustomer);
 router.get('/:id', getCustomerById);
 router.put('/:id', updateCustomer);

@@ -32,6 +32,7 @@ export interface CustomerSnapshot {
 export interface Invoice {
   _id: string;
   invoiceNumber: string;
+  sequenceNumber?: number;
   invoiceDate: string;
   customer: string;
   customerSnapshot: CustomerSnapshot;

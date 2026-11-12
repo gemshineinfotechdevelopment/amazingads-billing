@@ -12,6 +12,7 @@ export type ProductCategory =
 export interface IProduct extends Document {
   name: string;
   sku: string;
+  sequenceNumber?: number;
   category: ProductCategory;
   size: string;
   description?: string;
@@ -25,7 +26,8 @@ export interface IProduct extends Document {
 const productSchema = new Schema<IProduct>(
   {
     name: { type: String, required: true, trim: true },
-    sku: { type: String, required: true, unique: true, uppercase: true, trim: true },
+    sku: { type: String, required: true, unique: true, trim: true },
+    sequenceNumber: { type: Number, index: true },
     category: {
       type: String,
       required: true,
