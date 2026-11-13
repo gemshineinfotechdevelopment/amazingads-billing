@@ -2,7 +2,7 @@ import React from 'react';
 import { Printer, Download, X } from 'lucide-react';
 import type { Invoice } from '../../types/invoice';
 import { useSettings } from '../../context/SettingsContext';
-import { formatDate, formatCurrency, numberToWords } from '../../utils/formatters';
+import { formatDate, numberToWords } from '../../utils/formatters';
 import { generateInvoicePDF } from '../../utils/pdfGenerator';
 
 interface InvoicePrintViewProps {
@@ -173,60 +173,63 @@ export const InvoicePrintView: React.FC<InvoicePrintViewProps> = ({
           </div>
 
           {/* Totals Table */}
-          <div className="w-full sm:w-72 space-y-1.5 text-xs">
-            <div className="flex justify-between py-1 text-slate-600">
-              <span>Subtotal:</span>
-              <span className="font-mono font-medium">₹{invoice.subtotal.toFixed(2)}</span>
+          <div className="w-full sm:w-80 rounded-lg border border-slate-200 overflow-hidden text-xs">
+            <div className="p-3.5 bg-slate-50/60 space-y-1.5">
+              <div className="flex justify-between items-center text-slate-600">
+                <span>Subtotal:</span>
+                <span className="font-mono font-medium">₹{invoice.subtotal.toFixed(2)}</span>
+              </div>
+
+              {(invoice.itemDiscountTotal > 0 || invoice.additionalDiscount > 0) && (
+                <div className="flex justify-between items-center text-emerald-600 font-medium">
+                  <span>Total Discounts:</span>
+                  <span className="font-mono">
+                    -₹{(invoice.itemDiscountTotal + invoice.additionalDiscount).toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center text-slate-700 font-semibold pt-1 border-t border-slate-200/80">
+                <span>Taxable Amount:</span>
+                <span className="font-mono">₹{invoice.taxableAmount.toFixed(2)}</span>
+              </div>
+
+              {invoice.isGstInvoice && (
+                <>
+                  {invoice.isInterState ? (
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>IGST (Inter-State):</span>
+                      <span className="font-mono">₹{invoice.igstAmount.toFixed(2)}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>CGST:</span>
+                        <span className="font-mono">₹{invoice.cgstAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span>SGST:</span>
+                        <span className="font-mono">₹{invoice.sgstAmount.toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {invoice.roundOff !== 0 && (
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>Round Off:</span>
+                  <span className="font-mono">
+                    {invoice.roundOff > 0 ? `+₹${invoice.roundOff.toFixed(2)}` : `-₹${Math.abs(invoice.roundOff).toFixed(2)}`}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {(invoice.itemDiscountTotal > 0 || invoice.additionalDiscount > 0) && (
-              <div className="flex justify-between py-1 text-emerald-600 font-medium">
-                <span>Total Discounts:</span>
-                <span className="font-mono">
-                  -₹{(invoice.itemDiscountTotal + invoice.additionalDiscount).toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            <div className="flex justify-between py-1 text-slate-700 font-semibold border-t border-slate-100">
-              <span>Taxable Amount:</span>
-              <span className="font-mono">₹{invoice.taxableAmount.toFixed(2)}</span>
-            </div>
-
-            {invoice.isGstInvoice && (
-              <>
-                {invoice.isInterState ? (
-                  <div className="flex justify-between py-1 text-slate-600">
-                    <span>IGST (Inter-State):</span>
-                    <span className="font-mono">₹{invoice.igstAmount.toFixed(2)}</span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex justify-between py-0.5 text-slate-600">
-                      <span>CGST:</span>
-                      <span className="font-mono">₹{invoice.cgstAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-0.5 text-slate-600">
-                      <span>SGST:</span>
-                      <span className="font-mono">₹{invoice.sgstAmount.toFixed(2)}</span>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-
-            {invoice.roundOff !== 0 && (
-              <div className="flex justify-between py-1 text-slate-500">
-                <span>Round Off:</span>
-                <span className="font-mono">
-                  {invoice.roundOff > 0 ? `+₹${invoice.roundOff.toFixed(2)}` : `-₹${Math.abs(invoice.roundOff).toFixed(2)}`}
-                </span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center py-2 px-3 bg-[#142B4A] text-white rounded font-bold text-sm tracking-tight mt-2">
-              <span>Grand Total:</span>
-              <span className="text-base font-mono">{formatCurrency(invoice.grandTotal)}</span>
+            {/* Grand Total Bar - perfectly aligned inside the card */}
+            <div className="flex justify-between items-center py-2.5 px-3.5 bg-[#142B4A] text-white font-bold">
+              <span className="text-xs uppercase tracking-wider">Grand Total:</span>
+              <span className="text-base font-mono">₹{invoice.grandTotal.toFixed(2)}</span>
             </div>
           </div>
         </div>

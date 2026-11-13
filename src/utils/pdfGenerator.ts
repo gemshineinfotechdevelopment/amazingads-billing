@@ -163,14 +163,20 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
   doc.text(words, 14, finalY + 4, { maxWidth: 100 });
 
   // Calculation Breakdown (Right)
-  const calcX = pageWidth - 80;
+  const boxWidth = 78;
+  const boxX = pageWidth - 14 - boxWidth;
+  const padX = 4;
+  const labelX = boxX + padX;
+  const valueX = pageWidth - 14 - padX;
   let curCalcY = finalY;
 
   const addCalcRow = (label: string, value: string, isBold: boolean = false) => {
     doc.setFont('helvetica', isBold ? 'bold' : 'normal');
-    doc.text(label, calcX, curCalcY);
-    doc.text(value, pageWidth - 14, curCalcY, { align: 'right' });
-    curCalcY += 4.5;
+    doc.setFontSize(8);
+    doc.setTextColor(isBold ? 20 : 70, isBold ? 43 : 70, isBold ? 74 : 70);
+    doc.text(label, labelX, curCalcY);
+    doc.text(value, valueX, curCalcY, { align: 'right' });
+    curCalcY += 4.8;
   };
 
   addCalcRow('Subtotal:', `₹${invoice.subtotal.toFixed(2)}`);
@@ -180,7 +186,7 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
     addCalcRow('Total Discounts:', `-₹${totalDisc.toFixed(2)}`);
   }
 
-  addCalcRow('Taxable Amount:', `₹${invoice.taxableAmount.toFixed(2)}`);
+  addCalcRow('Taxable Amount:', `₹${invoice.taxableAmount.toFixed(2)}`, true);
 
   if (invoice.isGstInvoice) {
     if (invoice.isInterState) {
@@ -195,15 +201,17 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
     addCalcRow('Round Off:', `${invoice.roundOff > 0 ? '+' : ''}₹${invoice.roundOff.toFixed(2)}`);
   }
 
-  // Grand Total highlight bar
-  curCalcY += 1;
+  // Grand Total highlight bar (perfectly aligned with table right margin & inner labels)
+  curCalcY += 1.5;
+  const barHeight = 8.5;
   doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-  doc.rect(calcX - 4, curCalcY - 3.5, pageWidth - calcX - 10, 8, 'F');
+  doc.roundedRect(boxX, curCalcY - 4.5, boxWidth, barHeight, 1.5, 1.5, 'F');
+
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Grand Total:', calcX, curCalcY + 2);
-  doc.text(`₹${invoice.grandTotal.toLocaleString('en-IN')}`, pageWidth - 16, curCalcY + 2, {
+  doc.setFontSize(9.5);
+  doc.text('Grand Total:', labelX, curCalcY + 1);
+  doc.text(`₹${invoice.grandTotal.toFixed(2)}`, valueX, curCalcY + 1, {
     align: 'right',
   });
 
