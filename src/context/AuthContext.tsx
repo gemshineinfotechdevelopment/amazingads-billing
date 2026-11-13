@@ -12,11 +12,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AdminUser | null>(() => {
-    const saved = localStorage.getItem('admin');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('admin');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(() => !Boolean(localStorage.getItem('token')));
 
   useEffect(() => {
     const initAuth = async () => {
@@ -26,11 +30,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const admin = await authService.getMe();
           setUser(admin);
           localStorage.setItem('admin', JSON.stringify(admin));
-        } catch {
-          localStorage.removeItem('token');
-          localStorage.removeItem('admin');
-          setUser(null);
-          setToken(null);
+        } catch (err: any) {
+          // ONLY clear session if server explicitly rejected token with 401 Unauthorized
+          if (err.response?.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('admin');
+            setUser(null);
+            setToken(null);
+          }
         }
       }
       setLoading(false);

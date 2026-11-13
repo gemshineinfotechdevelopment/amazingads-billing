@@ -12,13 +12,21 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<CompanySettings | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [settings, setSettings] = useState<CompanySettings | null>(() => {
+    try {
+      const saved = localStorage.getItem('company_settings');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState<boolean>(() => !Boolean(localStorage.getItem('company_settings')));
 
   const fetchSettings = async () => {
     try {
       const data = await settingsService.getSettings();
       setSettings(data);
+      localStorage.setItem('company_settings', JSON.stringify(data));
     } catch (err) {
       console.error('Failed to load company settings:', err);
     } finally {
@@ -40,6 +48,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateSettings = async (data: Partial<CompanySettings>) => {
     const updated = await settingsService.updateSettings(data);
     setSettings(updated);
+    localStorage.setItem('company_settings', JSON.stringify(updated));
   };
 
   return (

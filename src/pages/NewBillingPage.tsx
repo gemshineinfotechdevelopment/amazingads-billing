@@ -27,14 +27,40 @@ interface DirectBillingItemRow {
   sku?: string;
   category?: string;
   size: string;
+  quantity: number | '';
   rate: number | '';
 }
+
+interface DirectBillingCustomer {
+  name: string;
+  mobile: string;
+  companyName: string;
+  gstin: string;
+  billingAddress: string;
+  city: string;
+  state: string;
+  pincode: string;
+  email: string;
+}
+
+const BILLING_DRAFT_KEY = 'amazingads_billing_draft';
+
+const getSavedBillingDraft = () => {
+  try {
+    const raw = localStorage.getItem(BILLING_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
 
 export const NewBillingPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
   const isEditMode = Boolean(id);
   const { settings } = useSettings();
+
+  const savedDraft = useMemo(() => (!isEditMode ? getSavedBillingDraft() : null), [isEditMode]);
 
   const [existingInvoiceNumber, setExistingInvoiceNumber] = useState<string>('');
   const [loadingInvoice, setLoadingInvoice] = useState(false);
@@ -52,35 +78,79 @@ export const NewBillingPage: React.FC = () => {
       .catch((err) => console.error('Failed to load products for suggestions:', err));
   }, []);
 
-  // 1. Direct Customer Details Form
-  const [customer, setCustomer] = useState({
-    name: '',
-    mobile: '',
-    companyName: '',
-    gstin: '',
-    billingAddress: '',
-    city: '',
-    state: settings?.state || 'Tamil Nadu',
-    pincode: '',
-    email: '',
+  // 1. Direct Customer Details Form (Restores draft on refresh)
+  const [customer, setCustomer] = useState<DirectBillingCustomer>(() => {
+    return (
+      savedDraft?.customer || {
+        name: '',
+        mobile: '',
+        companyName: '',
+        gstin: '',
+        billingAddress: '',
+        city: '',
+        state: settings?.state || 'Tamil Nadu',
+        pincode: '',
+        email: '',
+      }
+    );
   });
 
-  // 2. Direct Invoice Meta
-  const [invoiceDate, setInvoiceDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
-  const [isGstInvoice, setIsGstInvoice] = useState(true);
-  const [invoiceGstRate, setInvoiceGstRate] = useState<number | ''>(settings?.defaultGstRate ?? 12);
-  const [notes, setNotes] = useState('');
+  // 2. Direct Invoice Meta (Restores draft on refresh)
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
+    return savedDraft?.invoiceDate || new Date().toISOString().split('T')[0];
+  });
+  const [isGstInvoice, setIsGstInvoice] = useState<boolean>(() => {
+    return savedDraft?.isGstInvoice !== undefined ? savedDraft.isGstInvoice : true;
+  });
+  const [invoiceGstRate, setInvoiceGstRate] = useState<number | ''>(() => {
+    return savedDraft?.invoiceGstRate !== undefined
+      ? savedDraft.invoiceGstRate
+      : (settings?.defaultGstRate ?? 12);
+  });
+  const [notes, setNotes] = useState<string>(() => {
+    return savedDraft?.notes || '';
+  });
 
-  // 3. Direct Invoice Items (starts with 1 empty row ready to fill)
-  const [items, setItems] = useState<DirectBillingItemRow[]>([
-    {
-      name: '',
-      size: '',
-      rate: '',
-    },
-  ]);
+  // 3. Direct Invoice Items (Restores draft on refresh)
+  const [items, setItems] = useState<DirectBillingItemRow[]>(() => {
+    if (savedDraft?.items && Array.isArray(savedDraft.items) && savedDraft.items.length > 0) {
+      return savedDraft.items;
+    }
+    return [
+      {
+        name: '',
+        size: '',
+        quantity: 1,
+        rate: '',
+      },
+    ];
+  });
+
+  // Automatically save form data to localStorage draft on every input (only when creating new bill)
+  useEffect(() => {
+    if (!isEditMode && !loadingInvoice) {
+      const hasContent =
+        Boolean(customer.name?.trim()) ||
+        Boolean(customer.mobile?.trim()) ||
+        Boolean(customer.companyName?.trim()) ||
+        items.some((i) => Boolean(i.name?.trim()) || (i.rate !== '' && Number(i.rate) > 0)) ||
+        Boolean(notes?.trim());
+
+      if (hasContent) {
+        const draftData = {
+          customer,
+          items,
+          invoiceDate,
+          isGstInvoice,
+          invoiceGstRate,
+          notes,
+        };
+        localStorage.setItem(BILLING_DRAFT_KEY, JSON.stringify(draftData));
+      } else {
+        localStorage.removeItem(BILLING_DRAFT_KEY);
+      }
+    }
+  }, [customer, items, invoiceDate, isGstInvoice, invoiceGstRate, notes, isEditMode, loadingInvoice]);
 
   // 4. Save & Print State
   const [submitting, setSubmitting] = useState(false);
@@ -120,6 +190,7 @@ export const NewBillingPage: React.FC = () => {
                 sku: item.sku,
                 category: item.category,
                 size: item.size || '',
+                quantity: item.quantity !== undefined ? item.quantity : 1,
                 rate: item.rate,
               }))
             );
@@ -201,17 +272,19 @@ export const NewBillingPage: React.FC = () => {
     let subtotal = 0;
 
     const calculatedItems = items.map((item) => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
       const rate = Math.max(0, Number(item.rate) || 0);
-      subtotal += rate;
+      const itemTotal = Number((qty * rate).toFixed(2));
+      subtotal += itemTotal;
 
       return {
         ...item,
-        quantity: 1,
+        quantity: qty,
         unit: 'Pieces' as InvoiceUnit,
         discount: 0,
         rate,
-        taxableAmount: rate,
-        totalAmount: rate,
+        taxableAmount: itemTotal,
+        totalAmount: itemTotal,
       };
     });
 
@@ -256,6 +329,7 @@ export const NewBillingPage: React.FC = () => {
       {
         name: '',
         size: '',
+        quantity: 1,
         rate: '',
       },
     ]);
@@ -301,6 +375,7 @@ export const NewBillingPage: React.FC = () => {
     if (!window.confirm('Reset all entered billing details?')) {
       return;
     }
+    localStorage.removeItem(BILLING_DRAFT_KEY);
     setCustomer({
       name: '',
       mobile: '',
@@ -316,10 +391,12 @@ export const NewBillingPage: React.FC = () => {
       {
         name: '',
         size: '',
+        quantity: 1,
         rate: '',
       },
     ]);
     setNotes('');
+    toast.success('Form and draft cleared.');
   };
 
   // Save Invoice Direct to DB
@@ -365,7 +442,7 @@ export const NewBillingPage: React.FC = () => {
           sku: i.sku || String(idx + 1),
           category: i.category || 'Calendar Printing',
           size: i.size?.trim() || 'Standard',
-          quantity: 1,
+          quantity: Math.max(1, Number(i.quantity) || 1),
           unit: 'Pieces' as InvoiceUnit,
           rate: Math.max(0, Number(i.rate) || 0),
           discount: 0,
@@ -393,6 +470,7 @@ export const NewBillingPage: React.FC = () => {
       }
 
       const created = await invoiceService.createInvoice(payload);
+      localStorage.removeItem(BILLING_DRAFT_KEY);
       toast.success(`Bill generated successfully: ${created.invoiceNumber}`);
       setSavedInvoice(created);
 
@@ -438,6 +516,11 @@ export const NewBillingPage: React.FC = () => {
                 Next Bill: {nextInvoiceNumber}
               </span>
             ) : null}
+            {!isEditMode && (customer.name || customer.mobile || items[0]?.name) && (
+              <span className="ml-1 sm:ml-2 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200">
+                Draft Saved
+              </span>
+            )}
           </span>
           <h2 className="text-lg sm:text-xl font-bold text-[#142B4A]">
             {isEditMode ? `Edit Calendar Invoice #${existingInvoiceNumber}` : 'New Calendar Invoice'}
@@ -656,7 +739,7 @@ export const NewBillingPage: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold font-mono text-[#142B4A]">
-                    ₹{Number(item.rate || 0).toFixed(2)}
+                    ₹{item.totalAmount.toFixed(2)}
                   </span>
                   {items.length > 1 && (
                     <button
@@ -687,8 +770,8 @@ export const NewBillingPage: React.FC = () => {
                 />
               </div>
 
-              {/* Size & Rate in Grid */}
-              <div className="grid grid-cols-2 gap-2.5">
+              {/* Size, Qty & Rate in Grid */}
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Size</label>
                   <input
@@ -696,13 +779,32 @@ export const NewBillingPage: React.FC = () => {
                     placeholder="e.g. 15x20 inch"
                     value={item.size}
                     onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs text-slate-700 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                    className="w-full px-2 py-1.5 text-xs text-slate-700 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Qty *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="1"
+                    value={item.quantity}
+                    onChange={(e) =>
+                      handleUpdateItem(
+                        idx,
+                        'quantity',
+                        e.target.value === '' ? '' : Math.max(1, Number(e.target.value))
+                      )
+                    }
+                    className="w-full px-2 py-1.5 text-center text-xs font-bold font-mono text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
                   />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Rate / Amount (₹) *
+                    Rate (₹) *
                   </label>
                   <input
                     type="number"
@@ -714,7 +816,7 @@ export const NewBillingPage: React.FC = () => {
                     onChange={(e) =>
                       handleUpdateItem(idx, 'rate', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))
                     }
-                    className="w-full px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                    className="w-full px-2 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
                   />
                 </div>
               </div>
@@ -728,9 +830,10 @@ export const NewBillingPage: React.FC = () => {
             <thead className="bg-slate-100/70 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
               <tr>
                 <th className="py-2.5 px-3 w-12 text-center">#</th>
-                <th className="py-2.5 px-3 min-w-[280px]">Description / Calendar Product *</th>
-                <th className="py-2.5 px-3 w-48">Size</th>
-                <th className="py-2.5 px-3 w-44 text-right">Rate / Amount (₹) *</th>
+                <th className="py-2.5 px-3 min-w-[260px]">Description / Calendar Product *</th>
+                <th className="py-2.5 px-3 w-36">Size</th>
+                <th className="py-2.5 px-3 w-28 text-center">Qty *</th>
+                <th className="py-2.5 px-3 w-36 text-right">Rate (₹) *</th>
                 <th className="py-2.5 px-3 w-36 text-right font-bold">Total (₹)</th>
                 <th className="py-2.5 px-2 w-12 text-center"></th>
               </tr>
@@ -766,6 +869,25 @@ export const NewBillingPage: React.FC = () => {
                     />
                   </td>
 
+                  {/* Quantity */}
+                  <td className="py-2.5 px-3">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="1"
+                      value={item.quantity}
+                      onChange={(e) =>
+                        handleUpdateItem(
+                          idx,
+                          'quantity',
+                          e.target.value === '' ? '' : Math.max(1, Number(e.target.value))
+                        )
+                      }
+                      className="w-full px-2.5 py-1.5 text-center text-xs font-bold font-mono text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                    />
+                  </td>
+
                   {/* Rate / Amount */}
                   <td className="py-2.5 px-3">
                     <input
@@ -782,9 +904,9 @@ export const NewBillingPage: React.FC = () => {
                     />
                   </td>
 
-                  {/* Total Amount */}
+                  {/* Total Amount (Qty * Rate) */}
                   <td className="py-2.5 px-3 text-right font-bold font-mono text-slate-900 text-sm">
-                    ₹{Number(item.rate || 0).toFixed(2)}
+                    ₹{item.totalAmount.toFixed(2)}
                   </td>
 
                   {/* Remove Row */}
