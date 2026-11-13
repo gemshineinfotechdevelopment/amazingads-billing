@@ -11,21 +11,23 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { InvoicePrintView } from '../components/invoice/InvoicePrintView';
+import { ProductAutocomplete } from '../components/invoice/ProductAutocomplete';
 import type { Invoice, InvoiceUnit } from '../types/invoice';
+import type { Product } from '../types/product';
 import { invoiceService } from '../services/invoiceService';
 import { customerService } from '../services/customerService';
+import { productService } from '../services/productService';
 import { useSettings } from '../context/SettingsContext';
 import { formatCurrency } from '../utils/formatters';
 import toast from 'react-hot-toast';
 
 interface DirectBillingItemRow {
+  productId?: string;
   name: string;
+  sku?: string;
+  category?: string;
   size: string;
-  quantity: number;
-  unit: InvoiceUnit;
-  rate: number;
-  discount: number;
-  gstPercentage: number;
+  rate: number | '';
 }
 
 export const NewBillingPage: React.FC = () => {
@@ -36,6 +38,19 @@ export const NewBillingPage: React.FC = () => {
 
   const [existingInvoiceNumber, setExistingInvoiceNumber] = useState<string>('');
   const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
+
+  // Load calendar products for instant suggestion dropdown
+  useEffect(() => {
+    productService
+      .getProducts({ all: true })
+      .then((res) => {
+        if (res && res.data) {
+          setAvailableProducts(res.data.filter((p) => p.status === 'Active'));
+        }
+      })
+      .catch((err) => console.error('Failed to load products for suggestions:', err));
+  }, []);
 
   // 1. Direct Customer Details Form
   const [customer, setCustomer] = useState({
@@ -55,19 +70,15 @@ export const NewBillingPage: React.FC = () => {
     new Date().toISOString().split('T')[0]
   );
   const [isGstInvoice, setIsGstInvoice] = useState(true);
-  const [additionalDiscount, setAdditionalDiscount] = useState<number>(0);
+  const [invoiceGstRate, setInvoiceGstRate] = useState<number>(settings?.defaultGstRate ?? 12);
   const [notes, setNotes] = useState('');
 
   // 3. Direct Invoice Items (starts with 1 empty row ready to fill)
   const [items, setItems] = useState<DirectBillingItemRow[]>([
     {
       name: '',
-      size: '15x20 inch',
-      quantity: 100,
-      unit: 'Pieces',
-      rate: 180,
-      discount: 0,
-      gstPercentage: settings?.defaultGstRate || 12,
+      size: '',
+      rate: '',
     },
   ]);
 
@@ -100,7 +111,6 @@ export const NewBillingPage: React.FC = () => {
             setInvoiceDate(new Date(inv.invoiceDate).toISOString().split('T')[0]);
           }
           setIsGstInvoice(inv.isGstInvoice);
-          setAdditionalDiscount(inv.additionalDiscount || 0);
           setNotes(inv.notes || '');
           if (inv.items && inv.items.length > 0) {
             setItems(
@@ -109,14 +119,13 @@ export const NewBillingPage: React.FC = () => {
                 name: item.name,
                 sku: item.sku,
                 category: item.category,
-                size: item.size,
-                quantity: item.quantity,
-                unit: item.unit,
+                size: item.size || '',
                 rate: item.rate,
-                discount: item.discount,
-                gstPercentage: item.gstPercentage,
               }))
             );
+            if (inv.items[0]?.gstPercentage !== undefined) {
+              setInvoiceGstRate(inv.items[0].gstPercentage);
+            }
           }
         })
         .catch((err) => {
@@ -138,26 +147,18 @@ export const NewBillingPage: React.FC = () => {
     }
   }, [isEditMode, settings?.invoicePrefix, settings?.financialYear, settings?.startingNumber]);
 
-  // Synchronize company defaults when settings load
+  // Synchronize company defaults and default GST rate when settings load
   useEffect(() => {
     if (settings) {
       setCustomer((prev) => ({
         ...prev,
         state: prev.state ? prev.state : (settings.state || 'Tamil Nadu'),
       }));
-      setItems((prev) => {
-        if (
-          prev.length === 1 &&
-          !prev[0].name &&
-          settings.defaultGstRate !== undefined &&
-          prev[0].gstPercentage === 12
-        ) {
-          return [{ ...prev[0], gstPercentage: settings.defaultGstRate }];
-        }
-        return prev;
-      });
+      if (!isEditMode && settings.defaultGstRate !== undefined) {
+        setInvoiceGstRate(settings.defaultGstRate);
+      }
     }
-  }, [settings]);
+  }, [settings, isEditMode]);
 
   // Quick customer lookup on entering 10-digit mobile number
   const handleMobileChange = async (val: string) => {
@@ -196,34 +197,25 @@ export const NewBillingPage: React.FC = () => {
   // Financial Calculations
   const calculations = useMemo(() => {
     let subtotal = 0;
-    let itemDiscountTotal = 0;
-    let totalTaxable = 0;
-    let totalGst = 0;
 
     const calculatedItems = items.map((item) => {
-      const qty = Math.max(1, Number(item.quantity) || 1);
       const rate = Math.max(0, Number(item.rate) || 0);
-      const disc = Math.max(0, Number(item.discount) || 0);
-      const gross = qty * rate;
-      const taxable = Math.max(0, gross - disc);
-      const gstPct = isGstInvoice ? Number(item.gstPercentage ?? 12) : 0;
-      const gstAmt = isGstInvoice ? (taxable * gstPct) / 100 : 0;
-      const total = taxable + gstAmt;
-
-      subtotal += gross;
-      itemDiscountTotal += disc;
-      totalTaxable += taxable;
-      totalGst += gstAmt;
+      subtotal += rate;
 
       return {
         ...item,
-        taxableAmount: taxable,
-        gstAmount: gstAmt,
-        totalAmount: total,
+        quantity: 1,
+        unit: 'Pieces' as InvoiceUnit,
+        discount: 0,
+        rate,
+        taxableAmount: rate,
+        totalAmount: rate,
       };
     });
 
-    const finalTaxable = Math.max(0, totalTaxable - Math.max(0, Number(additionalDiscount) || 0));
+    const taxableAmount = subtotal;
+    const effectiveGstRate = isGstInvoice ? Number(invoiceGstRate) || 0 : 0;
+    const totalGst = Number(((taxableAmount * effectiveGstRate) / 100).toFixed(2));
 
     let cgstAmount = 0;
     let sgstAmount = 0;
@@ -233,20 +225,19 @@ export const NewBillingPage: React.FC = () => {
       if (isInterState) {
         igstAmount = totalGst;
       } else {
-        cgstAmount = totalGst / 2;
-        sgstAmount = totalGst / 2;
+        cgstAmount = Number((totalGst / 2).toFixed(2));
+        sgstAmount = Number((totalGst / 2).toFixed(2));
       }
     }
 
-    const rawGrandTotal = finalTaxable + (isInterState ? igstAmount : cgstAmount + sgstAmount);
+    const rawGrandTotal = taxableAmount + (isInterState ? igstAmount : cgstAmount + sgstAmount);
     const grandTotal = Math.round(rawGrandTotal);
     const roundOff = Number((grandTotal - rawGrandTotal).toFixed(2));
 
     return {
       calculatedItems,
       subtotal,
-      itemDiscountTotal,
-      taxableAmount: finalTaxable,
+      taxableAmount,
       cgstAmount,
       sgstAmount,
       igstAmount,
@@ -254,7 +245,7 @@ export const NewBillingPage: React.FC = () => {
       roundOff,
       grandTotal,
     };
-  }, [items, additionalDiscount, isGstInvoice, isInterState]);
+  }, [items, isGstInvoice, isInterState, invoiceGstRate]);
 
   // Add a new empty row
   const handleAddItemRow = () => {
@@ -262,12 +253,8 @@ export const NewBillingPage: React.FC = () => {
       ...items,
       {
         name: '',
-        size: '15x20 inch',
-        quantity: 50,
-        unit: 'Pieces',
-        rate: 150,
-        discount: 0,
-        gstPercentage: settings?.defaultGstRate || 12,
+        size: '',
+        rate: '',
       },
     ]);
   };
@@ -277,6 +264,25 @@ export const NewBillingPage: React.FC = () => {
     const updated = [...items];
     updated[index] = { ...updated[index], [field]: value };
     setItems(updated);
+  };
+
+  // Select calendar product from suggestion dropdown
+  const handleSelectProduct = (index: number, product: Product) => {
+    const updated = [...items];
+    updated[index] = {
+      ...updated[index],
+      productId: product._id,
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      size: updated[index].size || product.size || '',
+      rate: product.sellingPrice !== undefined ? product.sellingPrice : updated[index].rate,
+    };
+    setItems(updated);
+    toast.success(`Selected "${product.name}" (₹${product.sellingPrice})`, {
+      id: `product-select-${index}`,
+      duration: 1500,
+    });
   };
 
   // Remove item row
@@ -307,15 +313,10 @@ export const NewBillingPage: React.FC = () => {
     setItems([
       {
         name: '',
-        size: '15x20 inch',
-        quantity: 100,
-        unit: 'Pieces',
-        rate: 180,
-        discount: 0,
-        gstPercentage: settings?.defaultGstRate || 12,
+        size: '',
+        rate: '',
       },
     ]);
-    setAdditionalDiscount(0);
     setNotes('');
   };
 
@@ -352,17 +353,18 @@ export const NewBillingPage: React.FC = () => {
         },
         invoiceDate,
         items: items.map((i, idx) => ({
+          productId: i.productId,
           name: i.name.trim(),
-          sku: String(idx + 1),
-          category: 'Calendar Printing',
-          size: i.size.trim() || 'Standard',
-          quantity: Number(i.quantity) || 1,
-          unit: i.unit,
-          rate: Number(i.rate) || 0,
-          discount: Number(i.discount) || 0,
-          gstPercentage: Number(i.gstPercentage) || 0,
+          sku: i.sku || String(idx + 1),
+          category: i.category || 'Calendar Printing',
+          size: i.size?.trim() || 'Standard',
+          quantity: 1,
+          unit: 'Pieces' as InvoiceUnit,
+          rate: Math.max(0, Number(i.rate) || 0),
+          discount: 0,
+          gstPercentage: isGstInvoice ? invoiceGstRate : 0,
         })),
-        additionalDiscount: Number(additionalDiscount) || 0,
+        additionalDiscount: 0,
         isGstInvoice,
         notes,
       };
@@ -644,7 +646,7 @@ export const NewBillingPage: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold font-mono text-[#142B4A]">
-                    ₹{item.totalAmount.toFixed(2)}
+                    ₹{Number(item.rate || 0).toFixed(2)}
                   </span>
                   {items.length > 1 && (
                     <button
@@ -659,147 +661,67 @@ export const NewBillingPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Product Description */}
+              {/* Product Description with Autocomplete */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
                   Product Description *
                 </label>
-                <input
-                  type="text"
+                <ProductAutocomplete
                   required
-                  placeholder="e.g. Royal Gold Foil 12-Sheet Wall Calendar"
+                  placeholder="Type calendar name (e.g. Royal Gold, Desk...)"
                   value={item.name}
-                  onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                  onChange={(val) => handleUpdateItem(idx, 'name', val)}
+                  onSelectProduct={(p) => handleSelectProduct(idx, p)}
+                  products={availableProducts}
                   className="w-full px-2.5 py-1.5 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
                 />
               </div>
 
-              {/* Size */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Size</label>
-                <input
-                  type="text"
-                  placeholder="15x20 inch"
-                  value={item.size}
-                  onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
-                />
-              </div>
-
-              {/* Qty & Unit */}
+              {/* Size & Rate in Grid */}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Quantity *
-                  </label>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Size</label>
                   <input
-                    type="number"
-                    min="1"
-                    required
-                    value={item.quantity}
-                    onChange={(e) =>
-                      handleUpdateItem(idx, 'quantity', Math.max(1, Number(e.target.value)))
-                    }
-                    className="w-full px-2.5 py-1.5 text-center font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
+                    type="text"
+                    placeholder="e.g. 15x20 inch"
+                    value={item.size}
+                    onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs text-slate-700 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Unit</label>
-                  <select
-                    value={item.unit}
-                    onChange={(e) => handleUpdateItem(idx, 'unit', e.target.value)}
-                    className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 focus:border-[#2563EB] outline-none"
-                  >
-                    <option value="Pieces">Pieces</option>
-                    <option value="Boxes">Boxes</option>
-                    <option value="Bundles">Bundles</option>
-                    <option value="Sets">Sets</option>
-                    <option value="Custom">Custom</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Rate & Discount */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Rate (₹) *
+                    Rate / Amount (₹) *
                   </label>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
                     required
-                    value={item.rate}
+                    placeholder="0.00"
+                    value={item.rate || ''}
                     onChange={(e) =>
-                      handleUpdateItem(idx, 'rate', Math.max(0, Number(e.target.value)))
+                      handleUpdateItem(idx, 'rate', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))
                     }
                     className="w-full px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Discount (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={item.discount || ''}
-                    placeholder="0"
-                    onChange={(e) =>
-                      handleUpdateItem(idx, 'discount', Math.max(0, Number(e.target.value)))
-                    }
-                    className="w-full px-2.5 py-1.5 text-right font-mono text-emerald-600 border border-slate-200 rounded-lg focus:border-[#2563EB] outline-none"
-                  />
-                </div>
               </div>
-
-              {/* GST % and Item Row Total */}
-              {isGstInvoice && (
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-slate-600">GST %:</span>
-                    <select
-                      value={item.gstPercentage}
-                      onChange={(e) =>
-                        handleUpdateItem(idx, 'gstPercentage', Number(e.target.value))
-                      }
-                      className="px-2 py-1 border border-slate-200 rounded text-xs bg-white focus:border-[#2563EB] outline-none font-medium"
-                    >
-                      <option value="0">0%</option>
-                      <option value="5">5%</option>
-                      <option value="12">12%</option>
-                      <option value="18">18%</option>
-                      <option value="28">28%</option>
-                    </select>
-                  </div>
-
-                  <span className="text-xs text-slate-500 font-medium">
-                    Total: <strong className="text-slate-900 font-mono">₹{item.totalAmount.toFixed(2)}</strong>
-                  </span>
-                </div>
-              )}
             </div>
           ))}
         </div>
 
         {/* Desktop View: Wide Data Entry Table */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto min-h-[280px]">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-100/70 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-10 text-center">#</th>
-                <th className="py-2.5 px-3 min-w-[220px]">Description / Calendar Product *</th>
-                <th className="py-2.5 px-2 w-28">Size</th>
-                <th className="py-2.5 px-2 w-24 text-center">Qty *</th>
-                <th className="py-2.5 px-2 w-28">Unit</th>
-                <th className="py-2.5 px-2 w-28 text-right">Rate (₹) *</th>
-                <th className="py-2.5 px-2 w-24 text-right">Discount (₹)</th>
-                {isGstInvoice && <th className="py-2.5 px-2 w-24 text-center">GST %</th>}
-                <th className="py-2.5 px-3 w-32 text-right font-bold">Total (₹)</th>
+                <th className="py-2.5 px-3 w-12 text-center">#</th>
+                <th className="py-2.5 px-3 min-w-[280px]">Description / Calendar Product *</th>
+                <th className="py-2.5 px-3 w-48">Size</th>
+                <th className="py-2.5 px-3 w-44 text-right">Rate / Amount (₹) *</th>
+                <th className="py-2.5 px-3 w-36 text-right font-bold">Total (₹)</th>
                 <th className="py-2.5 px-2 w-12 text-center"></th>
               </tr>
             </thead>
@@ -810,110 +732,49 @@ export const NewBillingPage: React.FC = () => {
                     {idx + 1}
                   </td>
 
-                  {/* Product / Description Direct Input */}
+                  {/* Product / Description Direct Input with Autocomplete */}
                   <td className="py-2.5 px-3">
-                    <input
-                      type="text"
+                    <ProductAutocomplete
                       required
-                      placeholder="e.g. Royal Gold Foil 12-Sheet Wall Calendar"
+                      placeholder="Type calendar name (e.g. Royal Gold, Desk...)"
                       value={item.name}
-                      onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                      onChange={(val) => handleUpdateItem(idx, 'name', val)}
+                      onSelectProduct={(p) => handleSelectProduct(idx, p)}
+                      products={availableProducts}
                       className="w-full px-2.5 py-1.5 text-xs font-semibold text-slate-800 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
                     />
                   </td>
 
                   {/* Size */}
-                  <td className="py-2.5 px-2">
+                  <td className="py-2.5 px-3">
                     <input
                       type="text"
-                      placeholder="15x20 inch"
+                      placeholder="e.g. 15x20 inch"
                       value={item.size}
                       onChange={(e) => handleUpdateItem(idx, 'size', e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                      className="w-full px-2.5 py-1.5 text-xs text-slate-700 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
                     />
                   </td>
 
-                  {/* Qty */}
-                  <td className="py-2.5 px-2">
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      value={item.quantity}
-                      onChange={(e) =>
-                        handleUpdateItem(idx, 'quantity', Math.max(1, Number(e.target.value)))
-                      }
-                      className="w-full px-2 py-1.5 text-center font-bold text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
-                    />
-                  </td>
-
-                  {/* Unit */}
-                  <td className="py-2.5 px-2">
-                    <select
-                      value={item.unit}
-                      onChange={(e) => handleUpdateItem(idx, 'unit', e.target.value)}
-                      className="w-full px-1.5 py-1.5 border border-slate-200 rounded-md text-xs bg-white text-slate-700 focus:border-[#2563EB] outline-none"
-                    >
-                      <option value="Pieces">Pieces</option>
-                      <option value="Boxes">Boxes</option>
-                      <option value="Bundles">Bundles</option>
-                      <option value="Sets">Sets</option>
-                      <option value="Custom">Custom</option>
-                    </select>
-                  </td>
-
-                  {/* Rate */}
-                  <td className="py-2.5 px-2">
+                  {/* Rate / Amount */}
+                  <td className="py-2.5 px-3">
                     <input
                       type="number"
                       min="0"
                       step="0.01"
                       required
-                      value={item.rate}
+                      placeholder="0.00"
+                      value={item.rate || ''}
                       onChange={(e) =>
-                        handleUpdateItem(idx, 'rate', Math.max(0, Number(e.target.value)))
+                        handleUpdateItem(idx, 'rate', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))
                       }
-                      className="w-full px-2 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
+                      className="w-full px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
                     />
                   </td>
-
-                  {/* Discount */}
-                  <td className="py-2.5 px-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.discount || ''}
-                      placeholder="0"
-                      onChange={(e) =>
-                        handleUpdateItem(idx, 'discount', Math.max(0, Number(e.target.value)))
-                      }
-                      className="w-full px-2 py-1.5 text-right font-mono text-emerald-600 border border-slate-200 rounded-md focus:border-[#2563EB] outline-none"
-                    />
-                  </td>
-
-                  {/* GST % */}
-                  {isGstInvoice && (
-                    <td className="py-2.5 px-2">
-                      <select
-                        value={item.gstPercentage}
-                        onChange={(e) =>
-                          handleUpdateItem(idx, 'gstPercentage', Number(e.target.value))
-                        }
-                        className="w-full px-1.5 py-1.5 border border-slate-200 rounded-md text-center text-xs bg-white focus:border-[#2563EB] outline-none font-medium"
-                      >
-                        <option value="0">0%</option>
-                        <option value="5">5%</option>
-                        <option value="12">12%</option>
-                        <option value="18">18%</option>
-                        <option value="28">28%</option>
-                      </select>
-                    </td>
-                  )}
 
                   {/* Total Amount */}
                   <td className="py-2.5 px-3 text-right font-bold font-mono text-slate-900 text-sm">
-                    ₹{item.totalAmount.toFixed(2)}
+                    ₹{Number(item.rate || 0).toFixed(2)}
                   </td>
 
                   {/* Remove Row */}
@@ -953,30 +814,16 @@ export const NewBillingPage: React.FC = () => {
 
       {/* 4. Bottom Section: Notes & Live Financial Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Additional Discount & Notes */}
+        {/* Left: Notes / Delivery Remarks */}
         <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-          <h4 className="text-sm font-bold text-[#142B4A]">Additional Invoice Options</h4>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Overall Invoice Discount (₹)
-            </label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              value={additionalDiscount || ''}
-              onChange={(e) => setAdditionalDiscount(Number(e.target.value))}
-              className="w-full max-w-xs px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-[#2563EB] outline-none font-mono"
-            />
-          </div>
+          <h4 className="text-sm font-bold text-[#142B4A]">Invoice Remarks & Delivery</h4>
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Invoice Remarks / Delivery Notes
             </label>
             <textarea
-              rows={3}
+              rows={4}
               placeholder="e.g. Dispatched via Sivakasi Lorry Service / Delivered in full"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -987,48 +834,71 @@ export const NewBillingPage: React.FC = () => {
 
         {/* Right: Calculations Breakdown & Grand Total */}
         <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
-          <h4 className="text-sm font-bold text-[#142B4A] mb-3">Invoice Calculation</h4>
-
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between py-1 text-slate-600">
-              <span>Subtotal:</span>
-              <span className="font-mono font-medium">₹{calculations.subtotal.toFixed(2)}</span>
-            </div>
-
-            {(calculations.itemDiscountTotal > 0 || additionalDiscount > 0) && (
-              <div className="flex justify-between py-1 text-emerald-600 font-medium">
-                <span>Total Discounts:</span>
-                <span className="font-mono">
-                  -₹{(calculations.itemDiscountTotal + (Number(additionalDiscount) || 0)).toFixed(2)}
-                </span>
-              </div>
+          <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+            <h4 className="text-sm font-bold text-[#142B4A]">Invoice Calculation</h4>
+            {isGstInvoice ? (
+              <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                GST Tax Invoice
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                Non-GST Invoice
+              </span>
             )}
+          </div>
 
-            <div className="flex justify-between py-1 text-slate-700 font-semibold border-t border-slate-100">
-              <span>Taxable Value:</span>
-              <span className="font-mono">₹{calculations.taxableAmount.toFixed(2)}</span>
+          <div className="space-y-2.5 text-xs">
+            <div className="flex justify-between py-1 text-slate-600">
+              <span className="font-medium">Subtotal (Items Total):</span>
+              <span className="font-mono font-bold text-slate-800">₹{calculations.subtotal.toFixed(2)}</span>
             </div>
 
-            {isGstInvoice && (
-              <>
+            {isGstInvoice ? (
+              <div className="bg-slate-50/90 p-3 rounded-lg border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">
+                    GST Tax Rate:
+                  </label>
+                  <select
+                    value={invoiceGstRate}
+                    onChange={(e) => setInvoiceGstRate(Number(e.target.value))}
+                    className="px-2.5 py-1 text-xs border border-slate-200 rounded-md bg-white font-bold text-slate-800 focus:border-[#2563EB] outline-none shadow-2xs"
+                  >
+                    <option value="0">0% (Exempted / Nil)</option>
+                    <option value="5">5% (CGST 2.5% + SGST 2.5%)</option>
+                    <option value="12">12% (CGST 6% + SGST 6%)</option>
+                    <option value="18">18% (CGST 9% + SGST 9%)</option>
+                    <option value="28">28% (CGST 14% + SGST 14%)</option>
+                  </select>
+                </div>
+
                 {isInterState ? (
-                  <div className="flex justify-between py-1 text-slate-600">
-                    <span>IGST (Inter-State):</span>
-                    <span className="font-mono">₹{calculations.igstAmount.toFixed(2)}</span>
+                  <div className="flex justify-between text-slate-600 text-[11px] pt-1.5 border-t border-slate-200">
+                    <span>IGST ({invoiceGstRate}%):</span>
+                    <span className="font-mono font-semibold">₹{calculations.igstAmount.toFixed(2)}</span>
                   </div>
                 ) : (
-                  <>
-                    <div className="flex justify-between py-0.5 text-slate-600">
-                      <span>CGST:</span>
-                      <span className="font-mono">₹{calculations.cgstAmount.toFixed(2)}</span>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1.5 border-t border-slate-200">
+                    <div className="flex justify-between">
+                      <span>CGST ({(invoiceGstRate / 2).toFixed(1)}%):</span>
+                      <span className="font-mono font-semibold">₹{calculations.cgstAmount.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-0.5 text-slate-600">
-                      <span>SGST:</span>
-                      <span className="font-mono">₹{calculations.sgstAmount.toFixed(2)}</span>
+                    <div className="flex justify-between">
+                      <span>SGST ({(invoiceGstRate / 2).toFixed(1)}%):</span>
+                      <span className="font-mono font-semibold">₹{calculations.sgstAmount.toFixed(2)}</span>
                     </div>
-                  </>
+                  </div>
                 )}
-              </>
+
+                <div className="flex justify-between items-center text-xs font-bold text-slate-900 pt-1.5 border-t border-slate-200">
+                  <span>Total GST Amount:</span>
+                  <span className="font-mono text-[#2563EB]">₹{calculations.totalGstAmount.toFixed(2)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="py-1 text-slate-400 text-xs italic">
+                Non-GST Invoice (No tax applied)
+              </div>
             )}
 
             {calculations.roundOff !== 0 && (
