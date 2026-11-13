@@ -104,9 +104,18 @@ NGINX_ENABLED="/etc/nginx/sites-enabled/amazingads.gemshine.tech"
 
 if [ -f "$NGINX_CONF_SRC" ]; then
   if [ -d "/etc/nginx/sites-available" ]; then
-    echo "📋 Linking Nginx configuration file..."
-    sudo cp "$NGINX_CONF_SRC" "$NGINX_AVAILABLE"
-    sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    # Check if Nginx config already exists on the VPS.
+    # If it exists, DO NOT overwrite it because Certbot inserts SSL certificate blocks
+    # into this file. Overwriting it would erase SSL on every deployment!
+    if [ ! -f "$NGINX_AVAILABLE" ]; then
+      echo "📋 First time setup: Installing initial Nginx configuration..."
+      sudo cp "$NGINX_CONF_SRC" "$NGINX_AVAILABLE"
+      sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    else
+      echo "🛡️ Existing Nginx configuration found. Skipping overwrite to preserve Certbot SSL settings."
+      # Ensure symlink in sites-enabled is active
+      sudo ln -sf "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    fi
     
     echo "🧪 Testing Nginx configuration syntax..."
     sudo nginx -t
