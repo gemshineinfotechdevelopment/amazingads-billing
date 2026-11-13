@@ -100,12 +100,10 @@ export const NewBillingPage: React.FC = () => {
     return savedDraft?.invoiceDate || new Date().toISOString().split('T')[0];
   });
   const [isGstInvoice, setIsGstInvoice] = useState<boolean>(() => {
-    return savedDraft?.isGstInvoice !== undefined ? savedDraft.isGstInvoice : true;
+    return savedDraft?.isGstInvoice !== undefined ? savedDraft.isGstInvoice : false;
   });
   const [invoiceGstRate, setInvoiceGstRate] = useState<number | ''>(() => {
-    return savedDraft?.invoiceGstRate !== undefined
-      ? savedDraft.invoiceGstRate
-      : (settings?.defaultGstRate ?? 12);
+    return savedDraft?.invoiceGstRate !== undefined ? savedDraft.invoiceGstRate : '';
   });
   const [notes, setNotes] = useState<string>(() => {
     return savedDraft?.notes || '';
@@ -218,18 +216,15 @@ export const NewBillingPage: React.FC = () => {
     }
   }, [isEditMode, settings?.invoicePrefix, settings?.financialYear, settings?.startingNumber]);
 
-  // Synchronize company defaults and default GST rate when settings load
+  // Synchronize company defaults when settings load
   useEffect(() => {
     if (settings) {
       setCustomer((prev) => ({
         ...prev,
         state: prev.state ? prev.state : (settings.state || 'Tamil Nadu'),
       }));
-      if (!isEditMode && settings.defaultGstRate !== undefined) {
-        setInvoiceGstRate(settings.defaultGstRate);
-      }
     }
-  }, [settings, isEditMode]);
+  }, [settings]);
 
   // Quick customer lookup on entering 10-digit mobile number
   const handleMobileChange = async (val: string) => {
@@ -446,10 +441,10 @@ export const NewBillingPage: React.FC = () => {
           unit: 'Pieces' as InvoiceUnit,
           rate: Math.max(0, Number(i.rate) || 0),
           discount: 0,
-          gstPercentage: isGstInvoice ? (Number(invoiceGstRate) || 0) : 0,
+          gstPercentage: isGstInvoice && (Number(invoiceGstRate) || 0) > 0 ? Number(invoiceGstRate) : 0,
         })),
         additionalDiscount: 0,
-        isGstInvoice,
+        isGstInvoice: isGstInvoice && (Number(invoiceGstRate) || 0) > 0,
         notes,
       };
 
@@ -580,14 +575,22 @@ export const NewBillingPage: React.FC = () => {
             </span>
 
             {/* GST Invoice Toggle */}
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-100 transition">
               <input
                 type="checkbox"
-                checked={isGstInvoice}
-                onChange={(e) => setIsGstInvoice(e.target.checked)}
+                checked={isGstInvoice && (Number(invoiceGstRate) || 0) > 0}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsGstInvoice(checked);
+                  if (checked && (invoiceGstRate === '' || Number(invoiceGstRate) === 0)) {
+                    setInvoiceGstRate(12);
+                  } else if (!checked) {
+                    setInvoiceGstRate('');
+                  }
+                }}
                 className="w-4 h-4 text-[#2563EB] rounded focus:ring-blue-500"
               />
-              <span>GST Tax Invoice</span>
+              <span>Add GST to Bill</span>
             </label>
           </div>
         </div>
@@ -968,13 +971,13 @@ export const NewBillingPage: React.FC = () => {
         <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
             <h4 className="text-sm font-bold text-[#142B4A]">Invoice Calculation</h4>
-            {isGstInvoice ? (
+            {isGstInvoice && (Number(invoiceGstRate) || 0) > 0 ? (
               <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
-                GST Tax Invoice
+                GST Tax Invoice ({Number(invoiceGstRate)}%)
               </span>
             ) : (
               <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                Non-GST Invoice
+                Non-GST Bill
               </span>
             )}
           </div>
@@ -985,67 +988,79 @@ export const NewBillingPage: React.FC = () => {
               <span className="font-mono font-bold text-slate-800">₹{calculations.subtotal.toFixed(2)}</span>
             </div>
 
-            {isGstInvoice ? (
-              <div className="bg-slate-50/90 p-3 rounded-lg border border-slate-200/80 space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-xs font-bold text-slate-700">
+            {/* Runtime GST Input Block */}
+            <div className="bg-slate-50/90 p-3 rounded-lg border border-slate-200/80 space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block">
                     GST Tax Rate (%):
                   </label>
-                  <div className="relative w-28">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="12"
-                      value={invoiceGstRate}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '') {
-                          setInvoiceGstRate('');
-                        } else {
-                          const num = Number(val);
-                          if (!isNaN(num) && num >= 0 && num <= 100) {
-                            setInvoiceGstRate(num);
-                          }
+                  <span className="text-[10px] text-slate-400">
+                    {isGstInvoice && (Number(invoiceGstRate) || 0) > 0
+                      ? 'Runtime GST rate applied'
+                      : 'Leave 0 or empty for Non-GST bill'}
+                  </span>
+                </div>
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0"
+                    value={invoiceGstRate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setInvoiceGstRate('');
+                        setIsGstInvoice(false);
+                      } else {
+                        const num = Number(val);
+                        if (!isNaN(num) && num >= 0 && num <= 100) {
+                          setInvoiceGstRate(num);
+                          setIsGstInvoice(num > 0);
                         }
-                      }}
-                      className="w-full pl-2.5 pr-7 py-1 text-right text-xs font-bold font-mono text-slate-800 border border-slate-200 rounded-md bg-white focus:border-[#2563EB] outline-none shadow-2xs"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
-                      %
-                    </span>
-                  </div>
-                </div>
-
-                {isInterState ? (
-                  <div className="flex justify-between text-slate-600 text-[11px] pt-1.5 border-t border-slate-200">
-                    <span>IGST ({Number(invoiceGstRate) || 0}%):</span>
-                    <span className="font-mono font-semibold">₹{calculations.igstAmount.toFixed(2)}</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1.5 border-t border-slate-200">
-                    <div className="flex justify-between">
-                      <span>CGST ({((Number(invoiceGstRate) || 0) / 2).toFixed(1)}%):</span>
-                      <span className="font-mono font-semibold">₹{calculations.cgstAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>SGST ({((Number(invoiceGstRate) || 0) / 2).toFixed(1)}%):</span>
-                      <span className="font-mono font-semibold">₹{calculations.sgstAmount.toFixed(2)}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center text-xs font-bold text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>Total GST Amount:</span>
-                  <span className="font-mono text-[#2563EB]">₹{calculations.totalGstAmount.toFixed(2)}</span>
+                      }
+                    }}
+                    className="w-full pl-2.5 pr-7 py-1 text-right text-xs font-bold font-mono text-slate-800 border border-slate-200 rounded-md bg-white focus:border-[#2563EB] outline-none shadow-2xs"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                    %
+                  </span>
                 </div>
               </div>
-            ) : (
-              <div className="py-1 text-slate-400 text-xs italic">
-                Non-GST Invoice (No tax applied)
-              </div>
-            )}
+
+              {isGstInvoice && (Number(invoiceGstRate) || 0) > 0 ? (
+                <>
+                  {isInterState ? (
+                    <div className="flex justify-between text-slate-600 text-[11px] pt-1.5 border-t border-slate-200">
+                      <span>IGST ({Number(invoiceGstRate)}%):</span>
+                      <span className="font-mono font-semibold">₹{calculations.igstAmount.toFixed(2)}</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1.5 border-t border-slate-200">
+                      <div className="flex justify-between">
+                        <span>CGST ({(((Number(invoiceGstRate) || 0)) / 2).toFixed(1)}%):</span>
+                        <span className="font-mono font-semibold">₹{calculations.cgstAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>SGST ({(((Number(invoiceGstRate) || 0)) / 2).toFixed(1)}%):</span>
+                        <span className="font-mono font-semibold">₹{calculations.sgstAmount.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-900 pt-1.5 border-t border-slate-200">
+                    <span>Total GST Amount:</span>
+                    <span className="font-mono text-[#2563EB]">₹{calculations.totalGstAmount.toFixed(2)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-[11px] text-slate-400 italic pt-1 border-t border-slate-200/60">
+                  No GST applied (0%). Total will be items subtotal.
+                </div>
+              )}
+            </div>
 
             {calculations.roundOff !== 0 && (
               <div className="flex justify-between py-1 text-slate-500">
