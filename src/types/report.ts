@@ -15,9 +15,11 @@ export interface DashboardStats {
   }>;
   topSellingProducts: Array<{
     _id: string;
-    category: string;
+    category?: string;
+    size?: string;
     quantitySold: number;
     totalRevenue: number;
+    orderCount?: number;
   }>;
 }
 

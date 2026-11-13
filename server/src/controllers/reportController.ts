@@ -65,19 +65,35 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
       count: item.invoiceCount,
     }));
 
-    // 6. Top Selling Calendar Products
+    // 6. Top Selling Calendar Products (Processed by Quantity Sold & Revenue)
     const topProductsAgg = await Invoice.aggregate([
-      { $match: { status: 'Active' } },
+      { $match: { status: { $ne: 'Cancelled' } } },
       { $unwind: '$items' },
       {
-        $group: {
-          _id: '$items.name',
-          category: { $first: '$items.category' },
-          quantitySold: { $sum: '$items.quantity' },
-          totalRevenue: { $sum: '$items.totalAmount' },
+        $match: {
+          'items.name': { $exists: true, $nin: ['', null] },
         },
       },
-      { $sort: { totalRevenue: -1 } },
+      {
+        $project: {
+          name: { $trim: { input: '$items.name' } },
+          category: '$items.category',
+          size: '$items.size',
+          quantity: { $ifNull: ['$items.quantity', 1] },
+          totalAmount: { $ifNull: ['$items.totalAmount', 0] },
+        },
+      },
+      {
+        $group: {
+          _id: '$name',
+          category: { $first: '$category' },
+          size: { $first: '$size' },
+          quantitySold: { $sum: '$quantity' },
+          totalRevenue: { $sum: '$totalAmount' },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { quantitySold: -1, totalRevenue: -1 } },
       { $limit: 5 },
     ]);
 
