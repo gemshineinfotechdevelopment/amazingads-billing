@@ -207,7 +207,7 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
     align: 'right',
   });
 
-  // 5. Terms & Signature Block
+  // 5. Terms Block
   const termsY = Math.max(curCalcY + 14, finalY + 28);
 
   doc.setFontSize(7.5);
@@ -218,14 +218,7 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(grayColor[0], grayColor[1], grayColor[2]);
   const terms = settings?.termsAndConditions || '1. Goods once sold will not be returned.';
-  doc.text(terms, 14, termsY + 4, { maxWidth: 110 });
-
-  // Authorized Signature on right
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-  doc.text(`For ${settings?.companyName || 'Amazing Ads'}`, pageWidth - 65, termsY);
-  doc.text('Authorized Signatory', pageWidth - 50, termsY + 20);
+  doc.text(terms, 14, termsY + 4, { maxWidth: pageWidth - 28 });
 
   // Footer text
   if (settings?.invoiceFooterText) {

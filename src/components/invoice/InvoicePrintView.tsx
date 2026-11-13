@@ -232,26 +232,16 @@ export const InvoicePrintView: React.FC<InvoicePrintViewProps> = ({
         </div>
       </div>
 
-      {/* 5. Terms & Signatures Footer */}
+      {/* 5. Terms Footer */}
       <div className="mt-12 pt-6 border-t border-slate-200">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 items-end">
-          <div>
-            <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              Terms & Conditions:
-            </h5>
-            <p className="text-[10px] text-slate-500 mt-1 whitespace-pre-line leading-relaxed">
-              {settings?.termsAndConditions ||
-                '1. Goods once sold will not be returned or exchanged.\n2. Printing design proof confirmed is final.\n3. Disputed matters subject to Sivakasi Jurisdiction.'}
-            </p>
-          </div>
-
-          <div className="text-right flex flex-col items-end">
-            <p className="text-xs font-bold text-[#142B4A]">
-              For {settings?.companyName || 'Amazing Ads'}
-            </p>
-            <div className="h-16 w-32 border-b border-dashed border-slate-300"></div>
-            <p className="text-[11px] font-semibold text-slate-700 mt-1">Authorized Signatory</p>
-          </div>
+        <div>
+          <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Terms & Conditions:
+          </h5>
+          <p className="text-[10px] text-slate-500 mt-1 whitespace-pre-line leading-relaxed max-w-2xl">
+            {settings?.termsAndConditions ||
+              '1. Goods once sold will not be returned or exchanged.\n2. Printing design proof confirmed is final.\n3. Disputed matters subject to Sivakasi Jurisdiction.'}
+          </p>
         </div>
 
         {settings?.invoiceFooterText && (
