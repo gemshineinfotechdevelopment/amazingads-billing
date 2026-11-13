@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { PipelineStage } from 'mongoose';
 import { Invoice } from '../models/Invoice.js';
 import { Customer } from '../models/Customer.js';
 import { Product } from '../models/Product.js';
@@ -9,23 +10,23 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 1. Today's sales
+    // 1. Today's sales (Active invoices today)
     const todayInvoices = await Invoice.find({
-      status: 'Active',
+      status: { $ne: 'Cancelled' },
       invoiceDate: { $gte: startOfToday },
     });
     const todaySales = todayInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
 
-    // 2. Monthly sales
+    // 2. Monthly sales (Active invoices this month)
     const monthInvoices = await Invoice.find({
-      status: 'Active',
+      status: { $ne: 'Cancelled' },
       invoiceDate: { $gte: startOfMonth },
     });
     const monthlySales = monthInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
 
     // 3. Total active invoices & Total customers
     const [totalInvoices, totalCustomers] = await Promise.all([
-      Invoice.countDocuments({ status: 'Active' }),
+      Invoice.countDocuments({ status: { $ne: 'Cancelled' } }),
       Customer.countDocuments(),
     ]);
 
@@ -39,7 +40,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
     const monthlyChartAgg = await Invoice.aggregate([
       {
         $match: {
-          status: 'Active',
+          status: { $ne: 'Cancelled' },
           invoiceDate: { $gte: sixMonthsAgo },
         },
       },
@@ -65,36 +66,53 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
       count: item.invoiceCount,
     }));
 
-    // 6. Top Selling Calendar Products (Processed by Quantity Sold & Revenue)
-    const topProductsAgg = await Invoice.aggregate([
-      { $match: { status: { $ne: 'Cancelled' } } },
-      { $unwind: '$items' },
-      {
-        $match: {
-          'items.name': { $exists: true, $nin: ['', null] },
+    // Helper to build Top Selling Products aggregation pipeline
+    const buildTopProductsPipeline = (dateFilter?: Date): PipelineStage[] => {
+      const matchStage: any = {
+        status: { $ne: 'Cancelled' },
+      };
+      if (dateFilter) {
+        matchStage.invoiceDate = { $gte: dateFilter };
+      }
+
+      return [
+        { $match: matchStage },
+        { $unwind: '$items' },
+        {
+          $match: {
+            'items.name': { $exists: true, $nin: ['', null] },
+          },
         },
-      },
-      {
-        $project: {
-          name: { $trim: { input: '$items.name' } },
-          category: '$items.category',
-          size: '$items.size',
-          quantity: { $ifNull: ['$items.quantity', 1] },
-          totalAmount: { $ifNull: ['$items.totalAmount', 0] },
+        {
+          $project: {
+            name: { $trim: { input: '$items.name' } },
+            category: '$items.category',
+            size: '$items.size',
+            quantity: { $ifNull: ['$items.quantity', 1] },
+            totalAmount: { $ifNull: ['$items.totalAmount', 0] },
+          },
         },
-      },
-      {
-        $group: {
-          _id: '$name',
-          category: { $first: '$category' },
-          size: { $first: '$size' },
-          quantitySold: { $sum: '$quantity' },
-          totalRevenue: { $sum: '$totalAmount' },
-          orderCount: { $sum: 1 },
+        {
+          $group: {
+            _id: '$name',
+            category: { $first: '$category' },
+            size: { $first: '$size' },
+            quantitySold: { $sum: '$quantity' },
+            totalRevenue: { $sum: '$totalAmount' },
+            orderCount: { $sum: 1 },
+          },
         },
-      },
-      { $sort: { quantitySold: -1, totalRevenue: -1 } },
-      { $limit: 5 },
+        { $sort: { quantitySold: -1, totalRevenue: -1 } },
+        { $limit: 5 },
+      ] as PipelineStage[];
+    };
+
+    // 6. Top Selling Calendar Products:
+    // a) This Month (Strictly synchronized with monthlySales!)
+    // b) All Time (Overall historical top sellers)
+    const [topProductsThisMonth, topProductsAllTime] = await Promise.all([
+      Invoice.aggregate(buildTopProductsPipeline(startOfMonth)),
+      Invoice.aggregate(buildTopProductsPipeline()),
     ]);
 
     res.json({
@@ -108,7 +126,8 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<v
         totalCustomers,
         recentInvoices,
         monthlyChart,
-        topSellingProducts: topProductsAgg,
+        topSellingProducts: topProductsThisMonth,
+        topSellingProductsAllTime: topProductsAllTime,
       },
     });
   } catch (error: any) {

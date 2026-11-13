@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   DollarSign,
@@ -22,6 +22,14 @@ export const DashboardPage: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+  const [topPeriod, setTopPeriod] = useState<'month' | 'all'>('month');
+
+  const displayedTopProducts = useMemo(() => {
+    if (topPeriod === 'month') {
+      return stats?.topSellingProducts || [];
+    }
+    return stats?.topSellingProductsAllTime || stats?.topSellingProducts || [];
+  }, [topPeriod, stats]);
 
   useEffect(() => {
     loadDashboardData();
@@ -120,18 +128,50 @@ export const DashboardPage: React.FC = () => {
         {/* Top Selling Calendar Products */}
         <div className="bg-white rounded-xl p-5 sm:p-6 border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-3 sm:mb-4 pb-2 border-b border-slate-100">
-              <h4 className="text-sm font-bold text-[#142B4A] flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#2563EB]" />
-                <span>Top Selling Calendars</span>
-              </h4>
-              <span className="text-[11px] font-semibold text-slate-400">By Units Sold</span>
+            <div className="flex items-center justify-between mb-3 sm:mb-4 pb-2 border-b border-slate-100 gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-[#142B4A] flex items-center gap-2">
+                  <Package className="w-4 h-4 text-[#2563EB]" />
+                  <span>Top Selling Calendars</span>
+                </h4>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {topPeriod === 'month'
+                    ? 'This month sales (Matches Monthly Total)'
+                    : 'All-time historical sales'}
+                </p>
+              </div>
+
+              {/* Period Switcher: This Month vs All Time */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-semibold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTopPeriod('month')}
+                  className={`px-2.5 py-1 rounded-md transition ${
+                    topPeriod === 'month'
+                      ? 'bg-white text-[#2563EB] shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  This Month
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTopPeriod('all')}
+                  className={`px-2.5 py-1 rounded-md transition ${
+                    topPeriod === 'all'
+                      ? 'bg-white text-[#2563EB] shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  All Time
+                </button>
+              </div>
             </div>
 
-            {stats?.topSellingProducts && stats.topSellingProducts.length > 0 ? (
+            {displayedTopProducts.length > 0 ? (
               <div className="space-y-2.5">
-                {stats.topSellingProducts.map((p, idx) => {
-                  const maxQty = stats.topSellingProducts[0]?.quantitySold || 1;
+                {displayedTopProducts.map((p, idx) => {
+                  const maxQty = displayedTopProducts[0]?.quantitySold || 1;
                   const pct = Math.min(100, Math.max(8, Math.round((p.quantitySold / maxQty) * 100)));
 
                   const rankBadges = [
@@ -191,7 +231,11 @@ export const DashboardPage: React.FC = () => {
             ) : (
               <div className="py-8 text-center text-slate-400 text-xs">
                 <Package className="w-8 h-8 text-slate-300 mx-auto mb-2 opacity-50" />
-                <p>No calendar products sold yet.</p>
+                <p>
+                  {topPeriod === 'month'
+                    ? 'No calendars sold this month yet.'
+                    : 'No calendar products sold yet.'}
+                </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   Products rank automatically when invoices are generated.
                 </p>

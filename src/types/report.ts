@@ -21,6 +21,14 @@ export interface DashboardStats {
     totalRevenue: number;
     orderCount?: number;
   }>;
+  topSellingProductsAllTime?: Array<{
+    _id: string;
+    category?: string;
+    size?: string;
+    quantitySold: number;
+    totalRevenue: number;
+    orderCount?: number;
+  }>;
 }
 
 export interface DailySalesReportItem {
