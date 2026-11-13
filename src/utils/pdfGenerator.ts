@@ -111,17 +111,17 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
   // 3. Products Table
   const tableData = invoice.items.map((item, idx) => [
     idx + 1,
-    `${item.name}\nSize: ${item.size} | SKU: ${item.sku}`,
-    `${item.quantity} ${item.unit}`,
-    `₹${item.rate.toFixed(2)}`,
-    item.discount > 0 ? `₹${item.discount.toFixed(2)}` : '-',
+    `${item.name}\nSize: ${item.size || '-'} | SKU: ${item.sku || '-'}`,
+    `${item.quantity} ${item.unit || 'Pcs'}`,
+    `Rs. ${item.rate.toFixed(2)}`,
+    item.discount > 0 ? `Rs. ${item.discount.toFixed(2)}` : '-',
     invoice.isGstInvoice ? `${item.gstPercentage}%` : '0%',
-    `₹${item.totalAmount.toFixed(2)}`,
+    `Rs. ${item.totalAmount.toFixed(2)}`,
   ]);
 
   autoTable(doc, {
     startY: Math.max(custY + 6, 64),
-    head: [['#', 'Description of Goods', 'Qty', 'Unit Rate', 'Discount', 'GST %', 'Total (₹)']],
+    head: [['#', 'Description of Goods', 'Qty', 'Unit Rate', 'Discount', 'GST %', 'Total (Rs.)']],
     body: tableData,
     theme: 'grid',
     headStyles: {
@@ -135,10 +135,10 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
       0: { cellWidth: 10, halign: 'center' },
       1: { cellWidth: 'auto' },
       2: { cellWidth: 22, halign: 'center' },
-      3: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 24, halign: 'right' },
       4: { cellWidth: 20, halign: 'right' },
       5: { cellWidth: 18, halign: 'center' },
-      6: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
     },
     styles: {
       fontSize: 8,
@@ -148,75 +148,94 @@ export const generateInvoicePDF = (invoice: Invoice, settings?: CompanySettings)
     margin: { left: 14, right: 14 },
   });
 
-  // 4. Totals and Summary Box
+  // 4. Totals and Calculations Section
   const finalY = (doc as any).lastAutoTable.finalY + 6;
 
-  // Amount in words (Left)
+  // Left Side: Amount in Words & Notes
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-  doc.text('Amount in Words:', 14, finalY);
+  doc.text('Amount in Words:', 14, finalY + 4);
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', 'bold');
   doc.setTextColor(50, 50, 50);
   const words = numberToWords(invoice.grandTotal);
-  doc.text(words, 14, finalY + 4, { maxWidth: 100 });
+  doc.text(words, 14, finalY + 9, { maxWidth: 95 });
 
-  // Calculation Breakdown (Right)
-  const boxWidth = 78;
-  const boxX = pageWidth - 14 - boxWidth;
-  const padX = 4;
-  const labelX = boxX + padX;
-  const valueX = pageWidth - 14 - padX;
-  let curCalcY = finalY;
+  if (invoice.notes) {
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Notes / Instructions:', 14, finalY + 22);
 
-  const addCalcRow = (label: string, value: string, isBold: boolean = false) => {
-    doc.setFont('helvetica', isBold ? 'bold' : 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(isBold ? 20 : 70, isBold ? 43 : 70, isBold ? 74 : 70);
-    doc.text(label, labelX, curCalcY);
-    doc.text(value, valueX, curCalcY, { align: 'right' });
-    curCalcY += 4.8;
-  };
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(70, 70, 70);
+    doc.text(invoice.notes, 14, finalY + 26, { maxWidth: 95 });
+  }
 
-  addCalcRow('Subtotal:', `₹${invoice.subtotal.toFixed(2)}`);
+  // Right Side: Calculations & Grand Total in structured Table format (All BOLD)
+  const summaryBody: any[] = [];
+  summaryBody.push(['Subtotal:', `Rs. ${invoice.subtotal.toFixed(2)}`]);
 
   if (invoice.itemDiscountTotal > 0 || invoice.additionalDiscount > 0) {
     const totalDisc = invoice.itemDiscountTotal + invoice.additionalDiscount;
-    addCalcRow('Total Discounts:', `-₹${totalDisc.toFixed(2)}`);
+    summaryBody.push(['Total Discounts:', `-Rs. ${totalDisc.toFixed(2)}`]);
   }
 
-  addCalcRow('Taxable Amount:', `₹${invoice.taxableAmount.toFixed(2)}`, true);
+  summaryBody.push(['Taxable Amount:', `Rs. ${invoice.taxableAmount.toFixed(2)}`]);
 
   if (invoice.isGstInvoice) {
     if (invoice.isInterState) {
-      addCalcRow('IGST:', `₹${invoice.igstAmount.toFixed(2)}`);
+      summaryBody.push(['IGST (Inter-State):', `Rs. ${invoice.igstAmount.toFixed(2)}`]);
     } else {
-      addCalcRow('CGST:', `₹${invoice.cgstAmount.toFixed(2)}`);
-      addCalcRow('SGST:', `₹${invoice.sgstAmount.toFixed(2)}`);
+      summaryBody.push(['CGST:', `Rs. ${invoice.cgstAmount.toFixed(2)}`]);
+      summaryBody.push(['SGST:', `Rs. ${invoice.sgstAmount.toFixed(2)}`]);
     }
   }
 
   if (invoice.roundOff !== 0) {
-    addCalcRow('Round Off:', `${invoice.roundOff > 0 ? '+' : ''}₹${invoice.roundOff.toFixed(2)}`);
+    summaryBody.push(['Round Off:', `${invoice.roundOff > 0 ? '+' : ''}Rs. ${invoice.roundOff.toFixed(2)}`]);
   }
 
-  // Grand Total highlight bar (perfectly aligned with table right margin & inner labels)
-  curCalcY += 1.5;
-  const barHeight = 8.5;
-  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-  doc.roundedRect(boxX, curCalcY - 4.5, boxWidth, barHeight, 1.5, 1.5, 'F');
+  summaryBody.push(['Grand Total:', `Rs. ${invoice.grandTotal.toFixed(2)}`]);
 
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.text('Grand Total:', labelX, curCalcY + 1);
-  doc.text(`₹${invoice.grandTotal.toFixed(2)}`, valueX, curCalcY + 1, {
-    align: 'right',
+  const summaryWidth = 82;
+  const summaryMarginLeft = pageWidth - 14 - summaryWidth;
+
+  autoTable(doc, {
+    startY: finalY,
+    body: summaryBody,
+    theme: 'grid',
+    margin: { left: summaryMarginLeft, right: 14 },
+    tableWidth: summaryWidth,
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 2.2,
+      fontStyle: 'bold',
+      lineColor: [200, 210, 220],
+      lineWidth: 0.2,
+      valign: 'middle',
+    },
+    columnStyles: {
+      0: { cellWidth: 44, halign: 'left', fontStyle: 'bold', textColor: [30, 41, 59] },
+      1: { cellWidth: 38, halign: 'right', fontStyle: 'bold', textColor: [15, 23, 42] },
+    },
+    didParseCell: (data) => {
+      // Bold Dark Blue Grand Total row with pure white text
+      if (data.row.index === summaryBody.length - 1) {
+        data.cell.styles.fillColor = [20, 43, 74];
+        data.cell.styles.textColor = [255, 255, 255];
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fontSize = 9.5;
+        data.cell.styles.cellPadding = 3;
+      }
+    },
   });
 
-  // 5. Terms Block
-  const termsY = Math.max(curCalcY + 14, finalY + 28);
+  const totalsFinalY = (doc as any).lastAutoTable.finalY;
+
+  // 5. Terms Block (No Signatory)
+  const termsY = Math.max(totalsFinalY + 10, finalY + 36);
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');

@@ -172,65 +172,81 @@ export const InvoicePrintView: React.FC<InvoicePrintViewProps> = ({
             )}
           </div>
 
-          {/* Totals Table */}
-          <div className="w-full sm:w-80 rounded-lg border border-slate-200 overflow-hidden text-xs">
-            <div className="p-3.5 bg-slate-50/60 space-y-1.5">
-              <div className="flex justify-between items-center text-slate-600">
-                <span>Subtotal:</span>
-                <span className="font-mono font-medium">₹{invoice.subtotal.toFixed(2)}</span>
-              </div>
+          {/* Totals Table - Structured Table Format with Bold Text */}
+          <div className="w-full sm:w-80 rounded-lg border border-slate-300 overflow-hidden text-xs shadow-2xs">
+            <table className="w-full border-collapse">
+              <tbody className="divide-y divide-slate-200">
+                <tr className="bg-white">
+                  <td className="py-2 px-3.5 font-bold text-slate-800">Subtotal:</td>
+                  <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                    ₹{invoice.subtotal.toFixed(2)}
+                  </td>
+                </tr>
 
-              {(invoice.itemDiscountTotal > 0 || invoice.additionalDiscount > 0) && (
-                <div className="flex justify-between items-center text-emerald-600 font-medium">
-                  <span>Total Discounts:</span>
-                  <span className="font-mono">
-                    -₹{(invoice.itemDiscountTotal + invoice.additionalDiscount).toFixed(2)}
-                  </span>
-                </div>
-              )}
+                {(invoice.itemDiscountTotal > 0 || invoice.additionalDiscount > 0) && (
+                  <tr className="bg-emerald-50/50 text-emerald-800">
+                    <td className="py-2 px-3.5 font-bold">Total Discounts:</td>
+                    <td className="py-2 px-3.5 text-right font-bold font-mono">
+                      -₹{(invoice.itemDiscountTotal + invoice.additionalDiscount).toFixed(2)}
+                    </td>
+                  </tr>
+                )}
 
-              <div className="flex justify-between items-center text-slate-700 font-semibold pt-1 border-t border-slate-200/80">
-                <span>Taxable Amount:</span>
-                <span className="font-mono">₹{invoice.taxableAmount.toFixed(2)}</span>
-              </div>
+                <tr className="bg-slate-50/70">
+                  <td className="py-2 px-3.5 font-bold text-slate-900">Taxable Amount:</td>
+                  <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                    ₹{invoice.taxableAmount.toFixed(2)}
+                  </td>
+                </tr>
 
-              {invoice.isGstInvoice && (
-                <>
-                  {invoice.isInterState ? (
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>IGST (Inter-State):</span>
-                      <span className="font-mono">₹{invoice.igstAmount.toFixed(2)}</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex justify-between items-center text-slate-600">
-                        <span>CGST:</span>
-                        <span className="font-mono">₹{invoice.cgstAmount.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-slate-600">
-                        <span>SGST:</span>
-                        <span className="font-mono">₹{invoice.sgstAmount.toFixed(2)}</span>
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
+                {invoice.isGstInvoice && (
+                  <>
+                    {invoice.isInterState ? (
+                      <tr className="bg-white">
+                        <td className="py-2 px-3.5 font-bold text-slate-800">IGST (Inter-State):</td>
+                        <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                          ₹{invoice.igstAmount.toFixed(2)}
+                        </td>
+                      </tr>
+                    ) : (
+                      <>
+                        <tr className="bg-white">
+                          <td className="py-2 px-3.5 font-bold text-slate-800">CGST:</td>
+                          <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                            ₹{invoice.cgstAmount.toFixed(2)}
+                          </td>
+                        </tr>
+                        <tr className="bg-white">
+                          <td className="py-2 px-3.5 font-bold text-slate-800">SGST:</td>
+                          <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                            ₹{invoice.sgstAmount.toFixed(2)}
+                          </td>
+                        </tr>
+                      </>
+                    )}
+                  </>
+                )}
 
-              {invoice.roundOff !== 0 && (
-                <div className="flex justify-between items-center text-slate-500">
-                  <span>Round Off:</span>
-                  <span className="font-mono">
-                    {invoice.roundOff > 0 ? `+₹${invoice.roundOff.toFixed(2)}` : `-₹${Math.abs(invoice.roundOff).toFixed(2)}`}
-                  </span>
-                </div>
-              )}
-            </div>
+                {invoice.roundOff !== 0 && (
+                  <tr className="bg-white">
+                    <td className="py-2 px-3.5 font-bold text-slate-700">Round Off:</td>
+                    <td className="py-2 px-3.5 text-right font-bold font-mono text-slate-900">
+                      {invoice.roundOff > 0 ? `+₹${invoice.roundOff.toFixed(2)}` : `-₹${Math.abs(invoice.roundOff).toFixed(2)}`}
+                    </td>
+                  </tr>
+                )}
 
-            {/* Grand Total Bar - perfectly aligned inside the card */}
-            <div className="flex justify-between items-center py-2.5 px-3.5 bg-[#142B4A] text-white font-bold">
-              <span className="text-xs uppercase tracking-wider">Grand Total:</span>
-              <span className="text-base font-mono">₹{invoice.grandTotal.toFixed(2)}</span>
-            </div>
+                {/* Grand Total Row - Bold Dark Blue */}
+                <tr className="bg-[#142B4A] text-white">
+                  <td className="py-2.5 px-3.5 font-black text-sm uppercase tracking-wide">
+                    Grand Total:
+                  </td>
+                  <td className="py-2.5 px-3.5 text-right font-black font-mono text-base">
+                    ₹{invoice.grandTotal.toFixed(2)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
