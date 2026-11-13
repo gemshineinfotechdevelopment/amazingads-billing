@@ -22,7 +22,7 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
     delete rawData.updatedAt;
 
     if (rawData.startingNumber !== undefined) {
-      rawData.startingNumber = Math.max(1, Number(rawData.startingNumber) || 1001);
+      rawData.startingNumber = Math.max(1, Number(rawData.startingNumber) || 1);
     }
     if (rawData.defaultGstRate !== undefined) {
       rawData.defaultGstRate = Math.max(0, Number(rawData.defaultGstRate) || 0);
