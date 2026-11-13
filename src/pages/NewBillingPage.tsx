@@ -70,7 +70,7 @@ export const NewBillingPage: React.FC = () => {
     new Date().toISOString().split('T')[0]
   );
   const [isGstInvoice, setIsGstInvoice] = useState(true);
-  const [invoiceGstRate, setInvoiceGstRate] = useState<number>(settings?.defaultGstRate ?? 12);
+  const [invoiceGstRate, setInvoiceGstRate] = useState<number | ''>(settings?.defaultGstRate ?? 12);
   const [notes, setNotes] = useState('');
 
   // 3. Direct Invoice Items (starts with 1 empty row ready to fill)
@@ -162,15 +162,17 @@ export const NewBillingPage: React.FC = () => {
 
   // Quick customer lookup on entering 10-digit mobile number
   const handleMobileChange = async (val: string) => {
-    setCustomer((prev) => ({ ...prev, mobile: val }));
-    const cleaned = val.replace(/\D/g, '').trim();
-    if (cleaned.length === 10) {
+    // Only accept numeric digits, maximum 10 digits
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 10);
+    setCustomer((prev) => ({ ...prev, mobile: digitsOnly }));
+
+    if (digitsOnly.length === 10) {
       try {
-        const existing = await customerService.lookupByMobile(cleaned);
+        const existing = await customerService.lookupByMobile(digitsOnly);
         if (existing) {
           setCustomer({
             name: existing.name || '',
-            mobile: existing.mobile || cleaned,
+            mobile: existing.mobile || digitsOnly,
             companyName: existing.companyName || '',
             gstin: existing.gstin || '',
             billingAddress: existing.billingAddress || '',
@@ -326,8 +328,13 @@ export const NewBillingPage: React.FC = () => {
       toast.error('Please enter the Customer Name.');
       return null;
     }
-    if (!customer.mobile.trim()) {
+    const cleanedMobile = customer.mobile.replace(/\D/g, '').trim();
+    if (!cleanedMobile) {
       toast.error('Please enter the Customer Mobile Number.');
+      return null;
+    }
+    if (cleanedMobile.length !== 10) {
+      toast.error('Mobile Number must be exactly 10 digits.');
       return null;
     }
 
@@ -362,7 +369,7 @@ export const NewBillingPage: React.FC = () => {
           unit: 'Pieces' as InvoiceUnit,
           rate: Math.max(0, Number(i.rate) || 0),
           discount: 0,
-          gstPercentage: isGstInvoice ? invoiceGstRate : 0,
+          gstPercentage: isGstInvoice ? (Number(invoiceGstRate) || 0) : 0,
         })),
         additionalDiscount: 0,
         isGstInvoice,
@@ -520,11 +527,14 @@ export const NewBillingPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              Mobile Number *
+              Mobile Number (10 digits) *
             </label>
             <input
               type="tel"
               required
+              maxLength={10}
+              inputMode="numeric"
+              pattern="[0-9]{10}"
               placeholder="10-digit mobile"
               value={customer.mobile}
               onChange={(e) => handleMobileChange(e.target.value)}
@@ -855,36 +865,50 @@ export const NewBillingPage: React.FC = () => {
 
             {isGstInvoice ? (
               <div className="bg-slate-50/90 p-3 rounded-lg border border-slate-200/80 space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <label className="text-xs font-bold text-slate-700">
-                    GST Tax Rate:
+                    GST Tax Rate (%):
                   </label>
-                  <select
-                    value={invoiceGstRate}
-                    onChange={(e) => setInvoiceGstRate(Number(e.target.value))}
-                    className="px-2.5 py-1 text-xs border border-slate-200 rounded-md bg-white font-bold text-slate-800 focus:border-[#2563EB] outline-none shadow-2xs"
-                  >
-                    <option value="0">0% (Exempted / Nil)</option>
-                    <option value="5">5% (CGST 2.5% + SGST 2.5%)</option>
-                    <option value="12">12% (CGST 6% + SGST 6%)</option>
-                    <option value="18">18% (CGST 9% + SGST 9%)</option>
-                    <option value="28">28% (CGST 14% + SGST 14%)</option>
-                  </select>
+                  <div className="relative w-28">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      placeholder="12"
+                      value={invoiceGstRate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setInvoiceGstRate('');
+                        } else {
+                          const num = Number(val);
+                          if (!isNaN(num) && num >= 0 && num <= 100) {
+                            setInvoiceGstRate(num);
+                          }
+                        }
+                      }}
+                      className="w-full pl-2.5 pr-7 py-1 text-right text-xs font-bold font-mono text-slate-800 border border-slate-200 rounded-md bg-white focus:border-[#2563EB] outline-none shadow-2xs"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                      %
+                    </span>
+                  </div>
                 </div>
 
                 {isInterState ? (
                   <div className="flex justify-between text-slate-600 text-[11px] pt-1.5 border-t border-slate-200">
-                    <span>IGST ({invoiceGstRate}%):</span>
+                    <span>IGST ({Number(invoiceGstRate) || 0}%):</span>
                     <span className="font-mono font-semibold">₹{calculations.igstAmount.toFixed(2)}</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1.5 border-t border-slate-200">
                     <div className="flex justify-between">
-                      <span>CGST ({(invoiceGstRate / 2).toFixed(1)}%):</span>
+                      <span>CGST ({((Number(invoiceGstRate) || 0) / 2).toFixed(1)}%):</span>
                       <span className="font-mono font-semibold">₹{calculations.cgstAmount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>SGST ({(invoiceGstRate / 2).toFixed(1)}%):</span>
+                      <span>SGST ({((Number(invoiceGstRate) || 0) / 2).toFixed(1)}%):</span>
                       <span className="font-mono font-semibold">₹{calculations.sgstAmount.toFixed(2)}</span>
                     </div>
                   </div>
